@@ -290,6 +290,117 @@ function markNotificationSent(chatId, accountId) {
     }
 }
 
+// Admin Functions
+function getBlacklist() {
+    const data = getLogs();
+    return data.blacklist || [];
+}
+
+function addToBlacklist(chatId, reason, adminId) {
+    const data = getLogs();
+    if (!data.blacklist) data.blacklist = [];
+    
+    const existing = data.blacklist.find(b => b.chatId === chatId);
+    if (!existing) {
+        data.blacklist.push({
+            chatId,
+            reason,
+            addedBy: adminId,
+            addedAt: new Date().toISOString()
+        });
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+function removeFromBlacklist(chatId) {
+    const data = getLogs();
+    if (!data.blacklist) return false;
+    
+    const index = data.blacklist.findIndex(b => b.chatId === chatId);
+    if (index !== -1) {
+        data.blacklist.splice(index, 1);
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+function isBlacklisted(chatId) {
+    const data = getLogs();
+    if (!data.blacklist) return false;
+    return data.blacklist.some(b => b.chatId === chatId);
+}
+
+function getStats() {
+    const data = getLogs();
+    const now = new Date();
+    const last24h = new Date(now - 24 * 60 * 60 * 1000);
+    const last7d = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    
+    const recentLogs = data.logs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        return !isNaN(logDate.getTime());
+    });
+    
+    const logs24h = recentLogs.filter(log => new Date(log.timestamp) >= last24h);
+    const logs7d = recentLogs.filter(log => new Date(log.timestamp) >= last7d);
+    
+    const successfulCreations = data.logs.filter(l => 
+        l.action === 'create_account' && l.status === 'success'
+    );
+    
+    const failedCreations = data.logs.filter(l => 
+        l.action === 'create_account' && l.status === 'failed'
+    );
+    
+    const totalAccounts = Object.values(data.accounts || {}).reduce((sum, userAccounts) => 
+        sum + userAccounts.filter(a => a.active).length, 0
+    );
+    
+    return {
+        totalUsers: data.stats.activeUsers || 0,
+        totalAccountsCreated: data.stats.totalCreated || 0,
+        activeAccounts: totalAccounts,
+        successRate: successfulCreations.length > 0 ? 
+            ((successfulCreations.length / (successfulCreations.length + failedCreations.length)) * 100).toFixed(1) : 0,
+        users24h: new Set(logs24h.map(l => l.chatId)).size,
+        accounts24h: logs24h.filter(l => l.action === 'create_account' && l.status === 'success').length,
+        users7d: new Set(logs7d.map(l => l.chatId)).size,
+        accounts7d: logs7d.filter(l => l.action === 'create_account' && l.status === 'success').length,
+        blacklistedUsers: (data.blacklist || []).length
+    };
+}
+
+function getAllUsers() {
+    const data = getLogs();
+    const usersMap = new Map();
+    
+    data.logs.forEach(log => {
+        if (log.chatId && log.username) {
+            if (!usersMap.has(log.chatId)) {
+                const accounts = getUserAccounts(log.chatId);
+                usersMap.set(log.chatId, {
+                    chatId: log.chatId,
+                    username: log.username,
+                    firstName: log.userInfo?.first_name || log.username,
+                    lastName: log.userInfo?.last_name || '',
+                    telegramUsername: log.userInfo?.username || null,
+                    lastAction: log.timestamp,
+                    accountCount: accounts.length,
+                    activeAccounts: accounts.filter(a => a.active).length,
+                    isBlacklisted: isBlacklisted(log.chatId)
+                });
+            }
+        }
+    });
+    
+    return Array.from(usersMap.values()).sort((a, b) => 
+        new Date(b.lastAction) - new Date(a.lastAction)
+    );
+}
+
 module.exports = { 
     getLogs, 
     addLog, 
@@ -305,5 +416,12 @@ module.exports = {
     canCreateAccount,
     updateUserLimit,
     getExpiringAccounts,
-    markNotificationSent
+    markNotificationSent,
+    // Admin functions
+    getBlacklist,
+    addToBlacklist,
+    removeFromBlacklist,
+    isBlacklisted,
+    getStats,
+    getAllUsers
 };

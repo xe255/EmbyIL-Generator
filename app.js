@@ -20,7 +20,13 @@ const {
     canCreateAccount,
     updateUserLimit,
     getExpiringAccounts,
-    markNotificationSent
+    markNotificationSent,
+    getBlacklist,
+    addToBlacklist,
+    removeFromBlacklist,
+    isBlacklisted,
+    getStats,
+    getAllUsers
 } = require('./database');
 
 // --- Configuration ---
@@ -239,39 +245,74 @@ bot.onText(/\/myaccounts/, async (msg) => {
     });
 });
 
-// Admin command: List all users
+// Check if user is admin
+function isAdmin(chatId) {
+    return chatId == ADMIN_CHAT_ID;
+}
+
+// Admin command: Main admin panel
+bot.onText(/\/admin/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות אדמין.');
+        return;
+    }
+    
+    const adminMenu = `
+🔐 <b>פאנל אדמין - EmbyIL Bot</b>
+
+ברוך הבא לפאנל הניהול!
+בחר פעולה מהתפריט למטה:
+
+━━━━━━━━━━━━━━━━━━━━
+📊 <b>סטטיסטיקות</b> - צפייה בנתונים
+👥 <b>משתמשים</b> - רשימת כל המשתמשים
+📢 <b>שידור</b> - שלח הודעה לכל המשתמשים
+🚫 <b>חסומים</b> - ניהול רשימה שחורה
+💼 <b>חשבונות</b> - סטטוס כל החשבונות
+━━━━━━━━━━━━━━━━━━━━
+    `;
+    
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: '📊 סטטיסטיקות', callback_data: 'admin_stats' },
+                { text: '👥 משתמשים', callback_data: 'admin_users' }
+            ],
+            [
+                { text: '📢 שידור הודעה', callback_data: 'admin_broadcast' },
+                { text: '💼 חשבונות', callback_data: 'admin_accounts' }
+            ],
+            [
+                { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
+                { text: '🌐 Dashboard', url: `http://localhost:${port}` }
+            ]
+        ]
+    };
+    
+    await bot.sendMessage(chatId, adminMenu, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+    });
+});
+
+// Admin command: List all users (legacy support)
 bot.onText(/\/list/, async (msg) => {
     const chatId = msg.chat.id;
     
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות אדמין.');
+        return;
+    }
+    
     try {
-        const data = getLogs();
-        
-        // Get unique users from logs
-        const usersMap = new Map();
-        data.logs.forEach(log => {
-            if (log.chatId && log.username && log.username !== 'ADMIN') {
-                if (!usersMap.has(log.chatId)) {
-                    usersMap.set(log.chatId, {
-                        chatId: log.chatId,
-                        username: log.username,
-                        firstName: log.userInfo?.first_name || log.username,
-                        lastName: log.userInfo?.last_name || '',
-                        telegramUsername: log.userInfo?.username || null,
-                        lastAction: log.timestamp
-                    });
-                }
-            }
-        });
-        
-        const users = Array.from(usersMap.values());
+        const users = getAllUsers();
         
         if (users.length === 0) {
             await bot.sendMessage(chatId, '❌ אין משתמשים רשומים במערכת.');
             return;
         }
-        
-        // Sort by most recent activity
-        users.sort((a, b) => new Date(b.lastAction) - new Date(a.lastAction));
         
         // Create message with clickable user links
         let message = `👥 <b>רשימת משתמשים (${users.length})</b>\n\n`;
@@ -279,15 +320,17 @@ bot.onText(/\/list/, async (msg) => {
         users.forEach((user, index) => {
             const displayName = user.firstName + (user.lastName ? ' ' + user.lastName : '');
             const usernameTag = user.telegramUsername ? `@${user.telegramUsername}` : '';
+            const blacklistStatus = user.isBlacklisted ? ' 🚫' : '';
             
             // Create a clickable mention link using user ID
-            message += `${index + 1}. <a href="tg://user?id=${user.chatId}">${escapeHTML(displayName)}</a>`;
+            message += `${index + 1}. <a href="tg://user?id=${user.chatId}">${escapeHTML(displayName)}</a>${blacklistStatus}`;
             
             if (usernameTag) {
                 message += ` (${usernameTag})`;
             }
             
-            message += `\nID: <code>${user.chatId}</code>\n\n`;
+            message += `\nID: <code>${user.chatId}</code>`;
+            message += `\n📊 חשבונות: ${user.activeAccounts}/${user.accountCount}\n\n`;
         });
         
         message += '\n💡 <i>לחץ על שם המשתמש כדי לפתוח צ\'אט איתו</i>';
@@ -317,6 +360,12 @@ bot.on('callback_query', async (callbackQuery) => {
 
     if (action === 'create_account') {
         bot.answerCallbackQuery(callbackQuery.id);
+        
+        // Check if user is blacklisted
+        if (isBlacklisted(chatId)) {
+            await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
+            return;
+        }
         
         // Check if user can create account
         const limitCheck = canCreateAccount(chatId);
@@ -522,10 +571,340 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 });
 
-// Handle all text messages (for chat)
+// Admin callback handlers
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+    
+    // Check admin permission
+    if (!isAdmin(chatId)) {
+        await bot.answerCallbackQuery(query.id, { text: '⛔ אין לך הרשאות' });
+        return;
+    }
+    
+    if (data === 'admin_stats') {
+        await bot.answerCallbackQuery(query.id);
+        const stats = getStats();
+        
+        const statsMessage = `
+📊 <b>סטטיסטיקות מערכת</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📈 <b>נתונים כלליים:</b>
+👥 סה"כ משתמשים: <b>${stats.totalUsers}</b>
+💼 חשבונות שנוצרו: <b>${stats.totalAccountsCreated}</b>
+✅ חשבונות פעילים: <b>${stats.activeAccounts}</b>
+📊 אחוז הצלחה: <b>${stats.successRate}%</b>
+🚫 משתמשים חסומים: <b>${stats.blacklistedUsers}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📅 <b>24 שעות אחרונות:</b>
+👤 משתמשים פעילים: <b>${stats.users24h}</b>
+🆕 חשבונות חדשים: <b>${stats.accounts24h}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📅 <b>7 ימים אחרונים:</b>
+👤 משתמשים פעילים: <b>${stats.users7d}</b>
+🆕 חשבונות חדשים: <b>${stats.accounts7d}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+<i>עודכן: ${new Date().toLocaleString('he-IL')}</i>
+        `;
+        
+        await bot.sendMessage(chatId, statsMessage, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+            }
+        });
+    }
+    
+    else if (data === 'admin_users') {
+        await bot.answerCallbackQuery(query.id);
+        const users = getAllUsers();
+        
+        if (users.length === 0) {
+            await bot.sendMessage(chatId, '❌ אין משתמשים במערכת.');
+            return;
+        }
+        
+        // Show users with pagination (10 per page)
+        const pageSize = 10;
+        let message = `👥 <b>רשימת משתמשים (${users.length})</b>\n\n`;
+        
+        users.slice(0, pageSize).forEach((user, index) => {
+            const displayName = user.firstName + (user.lastName ? ' ' + user.lastName : '');
+            const blacklistStatus = user.isBlacklisted ? ' 🚫' : '';
+            
+            message += `${index + 1}. <a href="tg://user?id=${user.chatId}">${escapeHTML(displayName)}</a>${blacklistStatus}\n`;
+            message += `   📞 ID: <code>${user.chatId}</code>\n`;
+            message += `   💼 ${user.activeAccounts}/${user.accountCount} חשבונות\n\n`;
+        });
+        
+        if (users.length > pageSize) {
+            message += `\n<i>מציג ${pageSize} מתוך ${users.length} משתמשים</i>`;
+        }
+        
+        const keyboard = [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]];
+        
+        await bot.sendMessage(chatId, message, {
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+            reply_markup: { inline_keyboard: keyboard }
+        });
+    }
+    
+    else if (data === 'admin_broadcast') {
+        await bot.answerCallbackQuery(query.id);
+        
+        const broadcastMessage = `
+📢 <b>שידור הודעה לכל המשתמשים</b>
+
+כדי לשדר הודעה, שלח:
+<code>/broadcast [הודעה]</code>
+
+דוגמה:
+<code>/broadcast שלום! יש לנו עדכון חשוב</code>
+
+━━━━━━━━━━━━━━━━━━━━
+⚠️ <b>שים לב:</b>
+• ההודעה תישלח לכל המשתמשים
+• משתמשים חסומים לא יקבלו את ההודעה
+• התהליך עשוי לקחת זמן
+        `;
+        
+        await bot.sendMessage(chatId, broadcastMessage, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+            }
+        });
+    }
+    
+    else if (data === 'admin_blacklist') {
+        await bot.answerCallbackQuery(query.id);
+        const blacklist = getBlacklist();
+        
+        let message = `🚫 <b>רשימה שחורה</b>\n\n`;
+        
+        if (blacklist.length === 0) {
+            message += '✅ אין משתמשים חסומים כרגע.\n\n';
+        } else {
+            message += `סה"כ ${blacklist.length} משתמשים חסומים:\n\n`;
+            
+            blacklist.forEach((item, index) => {
+                message += `${index + 1}. ID: <code>${item.chatId}</code>\n`;
+                message += `   📝 סיבה: ${item.reason}\n`;
+                message += `   📅 תאריך: ${new Date(item.addedAt).toLocaleDateString('he-IL')}\n\n`;
+            });
+        }
+        
+        message += `━━━━━━━━━━━━━━━━━━━━\n`;
+        message += `<b>ניהול רשימה:</b>\n`;
+        message += `חסום משתמש: <code>/ban [ID] [סיבה]</code>\n`;
+        message += `הסר חסימה: <code>/unban [ID]</code>`;
+        
+        await bot.sendMessage(chatId, message, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+            }
+        });
+    }
+    
+    else if (data === 'admin_accounts') {
+        await bot.answerCallbackQuery(query.id);
+        const data = getLogs();
+        const allAccounts = data.accounts || {};
+        
+        let totalAccounts = 0;
+        let activeAccounts = 0;
+        let expiredAccounts = 0;
+        
+        Object.values(allAccounts).forEach(userAccounts => {
+            totalAccounts += userAccounts.length;
+            userAccounts.forEach(acc => {
+                if (acc.active) activeAccounts++;
+                else expiredAccounts++;
+            });
+        });
+        
+        const accountsMessage = `
+💼 <b>סטטוס חשבונות</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📊 <b>סיכום:</b>
+📦 סה"כ חשבונות: <b>${totalAccounts}</b>
+✅ חשבונות פעילים: <b>${activeAccounts}</b>
+❌ חשבונות שפג תוקפם: <b>${expiredAccounts}</b>
+👥 משתמשים עם חשבונות: <b>${Object.keys(allAccounts).length}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📈 <b>ממוצעים:</b>
+• ממוצע חשבונות למשתמש: <b>${Object.keys(allAccounts).length > 0 ? (totalAccounts / Object.keys(allAccounts).length).toFixed(1) : 0}</b>
+• אחוז חשבונות פעילים: <b>${totalAccounts > 0 ? ((activeAccounts / totalAccounts) * 100).toFixed(1) : 0}%</b>
+
+━━━━━━━━━━━━━━━━━━━━
+<i>עודכן: ${new Date().toLocaleString('he-IL')}</i>
+        `;
+        
+        await bot.sendMessage(chatId, accountsMessage, {
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+            }
+        });
+    }
+    
+    else if (data === 'admin_menu') {
+        await bot.answerCallbackQuery(query.id);
+        
+        const adminMenu = `
+🔐 <b>פאנל אדמין - EmbyIL Bot</b>
+
+ברוך הבא לפאנל הניהול!
+בחר פעולה מהתפריט למטה:
+
+━━━━━━━━━━━━━━━━━━━━
+📊 <b>סטטיסטיקות</b> - צפייה בנתונים
+👥 <b>משתמשים</b> - רשימת כל המשתמשים
+📢 <b>שידור</b> - שלח הודעה לכל המשתמשים
+🚫 <b>חסומים</b> - ניהול רשימה שחורה
+💼 <b>חשבונות</b> - סטטוס כל החשבונות
+━━━━━━━━━━━━━━━━━━━━
+        `;
+        
+        const keyboard = {
+            inline_keyboard: [
+                [
+                    { text: '📊 סטטיסטיקות', callback_data: 'admin_stats' },
+                    { text: '👥 משתמשים', callback_data: 'admin_users' }
+                ],
+                [
+                    { text: '📢 שידור הודעה', callback_data: 'admin_broadcast' },
+                    { text: '💼 חשבונות', callback_data: 'admin_accounts' }
+                ],
+                [
+                    { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
+                    { text: '🌐 Dashboard', url: `http://localhost:${port}` }
+                ]
+            ]
+        };
+        
+        await bot.editMessageText(adminMenu, {
+            chat_id: chatId,
+            message_id: query.message.message_id,
+            parse_mode: 'HTML',
+            reply_markup: keyboard
+        });
+    }
+});
+
+// Admin command: Ban user
+bot.onText(/\/ban (\d+)\s*(.*)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות אדמין.');
+        return;
+    }
+    
+    const targetChatId = match[1];
+    const reason = match[2] || 'לא צוינה סיבה';
+    
+    const success = addToBlacklist(targetChatId, reason, chatId);
+    
+    if (success) {
+        await bot.sendMessage(chatId, `✅ משתמש ${targetChatId} נחסם בהצלחה.\n📝 סיבה: ${reason}`, {
+            parse_mode: 'HTML'
+        });
+    } else {
+        await bot.sendMessage(chatId, `⚠️ משתמש ${targetChatId} כבר חסום.`);
+    }
+});
+
+// Admin command: Unban user
+bot.onText(/\/unban (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות אדמין.');
+        return;
+    }
+    
+    const targetChatId = match[1];
+    
+    const success = removeFromBlacklist(targetChatId);
+    
+    if (success) {
+        await bot.sendMessage(chatId, `✅ משתמש ${targetChatId} הוסר מהרשימה השחורה.`);
+    } else {
+        await bot.sendMessage(chatId, `⚠️ משתמש ${targetChatId} לא נמצא ברשימה השחורה.`);
+    }
+});
+
+// Admin command: Broadcast message
+bot.onText(/\/broadcast (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות אדמין.');
+        return;
+    }
+    
+    const message = match[1];
+    const users = getAllUsers();
+    
+    const statusMsg = await bot.sendMessage(chatId, `📢 מתחיל שידור ל-${users.length} משתמשים...`);
+    
+    let sent = 0;
+    let failed = 0;
+    let blocked = 0;
+    
+    for (const user of users) {
+        if (user.isBlacklisted) {
+            blocked++;
+            continue;
+        }
+        
+        try {
+            await bot.sendMessage(user.chatId, `📢 <b>הודעה מהאדמין:</b>\n\n${message}`, {
+                parse_mode: 'HTML'
+            });
+            sent++;
+            
+            // Add delay to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (error) {
+            failed++;
+            console.error(`Failed to send to ${user.chatId}:`, error.message);
+        }
+    }
+    
+    await bot.editMessageText(
+        `✅ שידור הושלם!\n\n` +
+        `📤 נשלח: ${sent}\n` +
+        `❌ נכשל: ${failed}\n` +
+        `🚫 חסומים: ${blocked}\n` +
+        `📊 סה"כ: ${users.length}`,
+        {
+            chat_id: chatId,
+            message_id: statusMsg.message_id
+        }
+    );
+});
+
+// Check blacklist for all user interactions
 bot.on('message', (msg) => {
     if (msg.text && !msg.text.startsWith('/')) {
         const chatId = msg.chat.id;
+        
+        // Block blacklisted users
+        if (isBlacklisted(chatId)) {
+            bot.sendMessage(chatId, '🚫 אינך יכול להשתמש בבוט זה.');
+            return;
+        }
+        
         const username = msg.from.username || msg.from.first_name || 'Unknown';
         
         addChatMessage(chatId, username, false, msg.text);
