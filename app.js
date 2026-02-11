@@ -522,7 +522,7 @@ ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבו�
         
         if (data === 'admin_stats') {
             await bot.answerCallbackQuery(callbackQuery.id);
-        const stats = getStats();
+            const stats = getStats();
         
         const statsMessage = `
 📊 <b>סטטיסטיקות מערכת</b>
@@ -549,15 +549,15 @@ ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבו�
 <i>עודכן: ${new Date().toLocaleString('he-IL')}</i>
         `;
         
-        await bot.sendMessage(chatId, statsMessage, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
-            }
-        });
-    }
-    
-    else if (data === 'admin_users') {
+            await bot.sendMessage(chatId, statsMessage, {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+                }
+            });
+        }
+        
+        else if (data === 'admin_users') {
         await bot.answerCallbackQuery(callbackQuery.id);
         const users = getAllUsers();
         
@@ -593,13 +593,13 @@ ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבו�
         
         keyboard.push([{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]);
         
-        await bot.sendMessage(chatId, message, {
-            parse_mode: 'HTML',
-            reply_markup: { inline_keyboard: keyboard }
-        });
-    }
-    
-    else if (data.startsWith('admin_user_')) {
+            await bot.sendMessage(chatId, message, {
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: keyboard }
+            });
+        }
+        
+        else if (data.startsWith('admin_user_')) {
         await bot.answerCallbackQuery(callbackQuery.id);
         const targetUserId = data.replace('admin_user_', '');
         const users = getAllUsers();
@@ -657,14 +657,14 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
             [{ text: '🔙 חזרה לרשימה', callback_data: 'admin_users' }]
         );
         
-        await bot.sendMessage(chatId, userMessage, {
-            parse_mode: 'HTML',
-            disable_web_page_preview: true,
-            reply_markup: { inline_keyboard: keyboard }
-        });
-    }
-    
-    else if (data.startsWith('admin_ban_')) {
+            await bot.sendMessage(chatId, userMessage, {
+                parse_mode: 'HTML',
+                disable_web_page_preview: true,
+                reply_markup: { inline_keyboard: keyboard }
+            });
+        }
+        
+        else if (data.startsWith('admin_ban_')) {
         await bot.answerCallbackQuery(callbackQuery.id);
         const targetUserId = data.replace('admin_ban_', '');
         
@@ -680,32 +680,32 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
             messageId: callbackQuery.message.message_id
         });
         
-        await bot.sendMessage(chatId, banMessage, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[{ text: '❌ ביטול', callback_data: `admin_user_${targetUserId}` }]]
-            }
-        });
-    }
-    
-    else if (data.startsWith('admin_unban_')) {
-        await bot.answerCallbackQuery(callbackQuery.id, { text: 'מסיר חסימה...' });
-        const targetUserId = data.replace('admin_unban_', '');
-        
-        const success = removeFromBlacklist(targetUserId);
-        
-        if (success) {
-            await bot.sendMessage(chatId, `✅ משתמש ${targetUserId} הוסר מהרשימה השחורה.`, {
+            await bot.sendMessage(chatId, banMessage, {
+                parse_mode: 'HTML',
                 reply_markup: {
-                    inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetUserId}` }]]
+                    inline_keyboard: [[{ text: '❌ ביטול', callback_data: `admin_user_${targetUserId}` }]]
                 }
             });
-        } else {
-            await bot.sendMessage(chatId, `⚠️ שגיאה בהסרת החסימה.`);
         }
-    }
-    
-    else if (data.startsWith('admin_message_')) {
+        
+        else if (data.startsWith('admin_unban_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מסיר חסימה...' });
+            const targetUserId = data.replace('admin_unban_', '');
+            
+            const success = removeFromBlacklist(targetUserId);
+            
+            if (success) {
+                await bot.sendMessage(chatId, `✅ משתמש ${targetUserId} הוסר מהרשימה השחורה.`, {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetUserId}` }]]
+                    }
+                });
+            } else {
+                await bot.sendMessage(chatId, `⚠️ שגיאה בהסרת החסימה.`);
+            }
+        }
+        
+        else if (data.startsWith('admin_message_')) {
         await bot.answerCallbackQuery(callbackQuery.id);
         const targetUserId = data.replace('admin_message_', '');
         
@@ -721,19 +721,19 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
             messageId: callbackQuery.message.message_id
         });
         
-        await bot.sendMessage(chatId, messagePrompt, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[{ text: '❌ ביטול', callback_data: `admin_user_${targetUserId}` }]]
-            }
-        });
-    }
-    
-    else if (data === 'admin_broadcast') {
-        await bot.answerCallbackQuery(callbackQuery.id);
-        const users = getAllUsers().filter(u => !u.isBlacklisted);
+            await bot.sendMessage(chatId, messagePrompt, {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [[{ text: '❌ ביטול', callback_data: `admin_user_${targetUserId}` }]]
+                }
+            });
+        }
         
-        const broadcastMessage = `
+        else if (data === 'admin_broadcast') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            const users = getAllUsers().filter(u => !u.isBlacklisted);
+            
+            const broadcastMessage = `
 📢 <b>שידור הודעה</b>
 
 שלח את ההודעה שברצונך לשדר לכל המשתמשים:
@@ -748,22 +748,22 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
 • התהליך עשוי לקחת זמן
 
 <i>שלח את ההודעה או לחץ ביטול</i>
-        `;
+            `;
+            
+            adminStates.set(chatId, {
+                action: 'broadcast',
+                messageId: callbackQuery.message.message_id
+            });
+            
+            await bot.sendMessage(chatId, broadcastMessage, {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [[{ text: '❌ ביטול', callback_data: 'admin_menu' }]]
+                }
+            });
+        }
         
-        adminStates.set(chatId, {
-            action: 'broadcast',
-            messageId: callbackQuery.message.message_id
-        });
-        
-        await bot.sendMessage(chatId, broadcastMessage, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[{ text: '❌ ביטול', callback_data: 'admin_menu' }]]
-            }
-        });
-    }
-    
-    else if (data === 'admin_blacklist') {
+        else if (data === 'admin_blacklist') {
         await bot.answerCallbackQuery(callbackQuery.id);
         const blacklist = getBlacklist();
         const allUsers = getAllUsers();
@@ -794,30 +794,30 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
         
         keyboard.push([{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]);
         
-        await bot.sendMessage(chatId, message, {
-            parse_mode: 'HTML',
-            reply_markup: { inline_keyboard: keyboard }
-        });
-    }
-    
-    else if (data === 'admin_accounts') {
-        await bot.answerCallbackQuery(callbackQuery.id);
-        const data = getLogs();
-        const allAccounts = data.accounts || {};
-        
-        let totalAccounts = 0;
-        let activeAccounts = 0;
-        let expiredAccounts = 0;
-        
-        Object.values(allAccounts).forEach(userAccounts => {
-            totalAccounts += userAccounts.length;
-            userAccounts.forEach(acc => {
-                if (acc.active) activeAccounts++;
-                else expiredAccounts++;
+            await bot.sendMessage(chatId, message, {
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: keyboard }
             });
-        });
+        }
         
-        const accountsMessage = `
+        else if (data === 'admin_accounts') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            const accountsData = getLogs();
+            const allAccounts = accountsData.accounts || {};
+            
+            let totalAccounts = 0;
+            let activeAccounts = 0;
+            let expiredAccounts = 0;
+            
+            Object.values(allAccounts).forEach(userAccounts => {
+                totalAccounts += userAccounts.length;
+                userAccounts.forEach(acc => {
+                    if (acc.active) activeAccounts++;
+                    else expiredAccounts++;
+                });
+            });
+            
+            const accountsMessage = `
 💼 <b>סטטוס חשבונות</b>
 
 ━━━━━━━━━━━━━━━━━━━━
@@ -834,20 +834,20 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
 
 ━━━━━━━━━━━━━━━━━━━━
 <i>עודכן: ${new Date().toLocaleString('he-IL')}</i>
-        `;
+            `;
+            
+            await bot.sendMessage(chatId, accountsMessage, {
+                parse_mode: 'HTML',
+                reply_markup: {
+                    inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+                }
+            });
+        }
         
-        await bot.sendMessage(chatId, accountsMessage, {
-            parse_mode: 'HTML',
-            reply_markup: {
-                inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
-            }
-        });
-    }
-    
-    else if (data === 'admin_menu') {
-        await bot.answerCallbackQuery(callbackQuery.id);
-        
-        const adminMenu = `
+        else if (data === 'admin_menu') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            
+            const adminMenu = `
 🔐 <b>פאנל אדמין - EmbyIL Bot</b>
 
 ברוך הבא לפאנל הניהול!
@@ -860,31 +860,32 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
 🚫 <b>חסומים</b> - ניהול רשימה שחורה
 💼 <b>חשבונות</b> - סטטוס כל החשבונות
 ━━━━━━━━━━━━━━━━━━━━
-        `;
-        
-        const keyboard = {
-            inline_keyboard: [
-                [
-                    { text: '📊 סטטיסטיקות', callback_data: 'admin_stats' },
-                    { text: '👥 משתמשים', callback_data: 'admin_users' }
-                ],
-                [
-                    { text: '📢 שידור הודעה', callback_data: 'admin_broadcast' },
-                    { text: '💼 חשבונות', callback_data: 'admin_accounts' }
-                ],
-                [
-                    { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
-                    { text: '🌐 Dashboard', url: `http://localhost:${port}` }
+            `;
+            
+            const keyboard = {
+                inline_keyboard: [
+                    [
+                        { text: '📊 סטטיסטיקות', callback_data: 'admin_stats' },
+                        { text: '👥 משתמשים', callback_data: 'admin_users' }
+                    ],
+                    [
+                        { text: '📢 שידור הודעה', callback_data: 'admin_broadcast' },
+                        { text: '💼 חשבונות', callback_data: 'admin_accounts' }
+                    ],
+                    [
+                        { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
+                        { text: '🌐 Dashboard', url: `http://localhost:${port}` }
+                    ]
                 ]
-            ]
-        };
-        
-        await bot.editMessageText(adminMenu, {
-            chat_id: chatId,
-            message_id: callbackQuery.message.message_id,
-            parse_mode: 'HTML',
-            reply_markup: keyboard
-        });
+            };
+            
+            await bot.editMessageText(adminMenu, {
+                chat_id: chatId,
+                message_id: callbackQuery.message.message_id,
+                parse_mode: 'HTML',
+                reply_markup: keyboard
+            });
+        }
     }
 });
 
