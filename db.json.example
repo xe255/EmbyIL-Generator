@@ -1,0 +1,11 @@
+{
+  "logs": [],
+  "stats": {
+    "totalCreated": 0,
+    "activeUsers": 0
+  },
+  "blacklist": [],
+  "progress": {},
+  "accounts": {},
+  "userLimits": {}
+}
