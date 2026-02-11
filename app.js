@@ -179,6 +179,209 @@ bot.onText(/\/getid/, async (msg) => {
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
 });
 
+// Admin Panel Command
+bot.onText(/\/admin/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות גישה לפאנל האדמין.');
+        return;
+    }
+    
+    const adminMenu = `
+🔐 <b>פאנל אדמין - EmbyIL Bot</b>
+
+ברוך הבא לפאנל הניהול!
+בחר פעולה מהתפריט למטה:
+
+━━━━━━━━━━━━━━━━━━━━
+📊 <b>פקודות זמינות:</b>
+
+/stats - סטטיסטיקות מערכת
+/users - רשימת משתמשים
+/broadcast - שידור הודעה
+/blacklist - רשימה שחורה
+/accounts - סטטוס חשבונות
+━━━━━━━━━━━━━━━━━━━━
+    `;
+    
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: '📊 סטטיסטיקות', callback_data: 'admin_stats' },
+                { text: '👥 משתמשים', callback_data: 'admin_users' }
+            ],
+            [
+                { text: '📢 שידור הודעה', callback_data: 'admin_broadcast' },
+                { text: '💼 חשבונות', callback_data: 'admin_accounts' }
+            ],
+            [
+                { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
+                { text: '🌐 Dashboard', url: `http://localhost:${port}` }
+            ]
+        ]
+    };
+    
+    await bot.sendMessage(chatId, adminMenu, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+    });
+});
+
+// Stats Command
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות.');
+        return;
+    }
+    
+    const stats = getStats();
+    
+    const statsMessage = `
+📊 <b>סטטיסטיקות מערכת</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📈 <b>נתונים כלליים:</b>
+👥 סה"כ משתמשים: <b>${stats.totalUsers}</b>
+💼 חשבונות שנוצרו: <b>${stats.totalAccountsCreated}</b>
+✅ חשבונות פעילים: <b>${stats.activeAccounts}</b>
+📊 אחוז הצלחה: <b>${stats.successRate}%</b>
+🚫 משתמשים חסומים: <b>${stats.blacklistedUsers}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📅 <b>24 שעות אחרונות:</b>
+👤 משתמשים פעילים: <b>${stats.users24h}</b>
+🆕 חשבונות חדשים: <b>${stats.accounts24h}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📅 <b>7 ימים אחרונים:</b>
+👤 משתמשים פעילים: <b>${stats.users7d}</b>
+🆕 חשבונות חדשים: <b>${stats.accounts7d}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+<i>עודכן: ${new Date().toLocaleString('he-IL')}</i>
+    `;
+    
+    await bot.sendMessage(chatId, statsMessage, { parse_mode: 'HTML' });
+});
+
+// Users Command
+bot.onText(/\/users/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות.');
+        return;
+    }
+    
+    const users = getAllUsers();
+    
+    if (users.length === 0) {
+        await bot.sendMessage(chatId, '❌ אין משתמשים במערכת.');
+        return;
+    }
+    
+    let message = `👥 <b>רשימת משתמשים (${users.length})</b>\n\n`;
+    
+    users.forEach((user, index) => {
+        const displayName = user.firstName + (user.lastName ? ' ' + user.lastName : '');
+        const blacklistIcon = user.isBlacklisted ? '🚫 ' : '✅ ';
+        const accountsInfo = `(${user.activeAccounts}/${user.accountCount})`;
+        
+        message += `${index + 1}. ${blacklistIcon}${displayName} ${accountsInfo}\n`;
+        message += `   ID: <code>${user.chatId}</code>\n`;
+        if (user.telegramUsername) {
+            message += `   @${user.telegramUsername}\n`;
+        }
+        message += `\n`;
+    });
+    
+    await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+});
+
+// Blacklist Command
+bot.onText(/\/blacklist/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות.');
+        return;
+    }
+    
+    const blacklist = getBlacklist();
+    const allUsers = getAllUsers();
+    
+    let message = `🚫 <b>רשימה שחורה</b>\n\n`;
+    
+    if (blacklist.length === 0) {
+        message += '✅ אין משתמשים חסומים כרגע.';
+    } else {
+        message += `סה"כ ${blacklist.length} משתמשים חסומים:\n\n`;
+        
+        blacklist.forEach((item, index) => {
+            const user = allUsers.find(u => u.chatId == item.chatId);
+            const displayName = user ? 
+                (user.firstName + (user.lastName ? ' ' + user.lastName : '')) : 
+                `User ${item.chatId}`;
+            
+            message += `${index + 1}. ${displayName}\n`;
+            message += `   ID: <code>${item.chatId}</code>\n`;
+            message += `   סיבה: ${item.reason}\n`;
+            message += `   תאריך: ${new Date(item.timestamp).toLocaleString('he-IL')}\n\n`;
+        });
+    }
+    
+    await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+});
+
+// Accounts Command
+bot.onText(/\/accounts/, async (msg) => {
+    const chatId = msg.chat.id;
+    
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות.');
+        return;
+    }
+    
+    const accountsData = getLogs();
+    const allAccounts = accountsData.accounts || {};
+    
+    let totalAccounts = 0;
+    let activeAccounts = 0;
+    let expiredAccounts = 0;
+    
+    Object.values(allAccounts).forEach(userAccounts => {
+        totalAccounts += userAccounts.length;
+        userAccounts.forEach(acc => {
+            if (acc.active) activeAccounts++;
+            else expiredAccounts++;
+        });
+    });
+    
+    const accountsMessage = `
+💼 <b>סטטוס חשבונות</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📊 <b>סיכום:</b>
+📦 סה"כ חשבונות: <b>${totalAccounts}</b>
+✅ חשבונות פעילים: <b>${activeAccounts}</b>
+❌ חשבונות שפג תוקפם: <b>${expiredAccounts}</b>
+👥 משתמשים עם חשבונות: <b>${Object.keys(allAccounts).length}</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📈 <b>ממוצעים:</b>
+• ממוצע חשבונות למשתמש: <b>${Object.keys(allAccounts).length > 0 ? (totalAccounts / Object.keys(allAccounts).length).toFixed(1) : 0}</b>
+• אחוז חשבונות פעילים: <b>${totalAccounts > 0 ? ((activeAccounts / totalAccounts) * 100).toFixed(1) : 0}%</b>
+
+━━━━━━━━━━━━━━━━━━━━
+<i>עודכן: ${new Date().toLocaleString('he-IL')}</i>
+    `;
+    
+    await bot.sendMessage(chatId, accountsMessage, { parse_mode: 'HTML' });
+});
+
 // Bot Logic
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
