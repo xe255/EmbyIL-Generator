@@ -152,6 +152,72 @@ console.log(`   ADMIN_CHAT_ID: ${ADMIN_CHAT_ID}`);
 console.log(`   Admin Enabled: ${ADMIN_CHAT_ID !== null ? '✅ YES' : '❌ NO - SET ADMIN_CHAT_ID IN ENV'}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
+// Help Command
+bot.onText(/\/help/, async (msg) => {
+    const chatId = msg.chat.id;
+    const isAdminUser = isAdmin(chatId);
+    
+    let helpMessage = `
+ℹ️ <b>עזרה - EmbyIL Bot</b>
+
+━━━━━━━━━━━━━━━━━━━━
+📋 <b>פקודות זמינות:</b>
+
+/start - התחל שיחה עם הבוט
+/help - הצג הודעת עזרה זו
+/getid - הצג את פרטי המשתמש שלך
+━━━━━━━━━━━━━━━━━━━━
+
+<b>איך להשתמש בבוט:</b>
+1️⃣ לחץ על "צור חשבון" ב-/start
+2️⃣ המתן בזמן שהבוט יוצר את החשבון
+3️⃣ קבל את פרטי ההתחברות
+4️⃣ השתמש בחשבון ב-Emby
+
+<b>מגבלות:</b>
+• עד 3 חשבונות פעילים בו-זמנית
+• כל חשבון תקף ל-3 ימים
+• לאחר תפוגת חשבון, אפשר ליצור חדש
+
+<b>תמיכה טכנית:</b>
+אם נתקלת בבעיה, פנה למנהל הבוט.
+    `;
+    
+    if (isAdminUser) {
+        helpMessage += `
+━━━━━━━━━━━━━━━━━━━━
+🔐 <b>פקודות אדמין:</b>
+
+/admin - פאנל אדמין
+/stats - סטטיסטיקות מערכת
+/users - רשימת משתמשים
+/blacklist - רשימה שחורה
+/accounts - סטטוס חשבונות
+/broadcast - שידור הודעה
+
+<b>פאנל האדמין כולל:</b>
+• צפייה בסטטיסטיקות
+• ניהול משתמשים
+• חסימת משתמשים
+• שידור הודעות
+• מעקב אחר חשבונות
+━━━━━━━━━━━━━━━━━━━━
+        `;
+    }
+    
+    helpMessage += `
+<b>קישורים שימושיים:</b>
+🎬 Emby Player: https://play.embyil.tv/
+
+<i>בוט EmbyIL - יצירת חשבונות Emby אוטומטית</i>
+    `;
+    
+    await bot.sendMessage(chatId, helpMessage, { 
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+    });
+});
+
 // Debug command to get your chat ID
 bot.onText(/\/getid/, async (msg) => {
     const chatId = msg.chat.id;

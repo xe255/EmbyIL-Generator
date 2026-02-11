@@ -125,9 +125,20 @@ These are already excluded in `.gitignore`.
 
 ## Bot Commands
 
+### User Commands
 - `/start` - Start the bot and view welcome message
-- `/myaccounts` - View all your accounts
-- `/list` - (Admin only) List all users
+- `/help` - Show help message with all available commands
+- `/getid` - Get your Telegram Chat ID
+
+### Admin Commands
+- `/admin` - Open admin panel with buttons
+- `/stats` - View system statistics
+- `/users` - List all users with details
+- `/blacklist` - View and manage blacklisted users
+- `/accounts` - View all accounts statistics
+- `/broadcast` - Send message to all users
+
+**Note:** Admin commands require `ADMIN_CHAT_ID` to be set in environment variables.
 
 ## Troubleshooting
 

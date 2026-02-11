@@ -6,7 +6,15 @@
 2. Set `ADMIN_CHAT_ID` in Zeabur environment variables
 3. Redeploy the service
 
-## Commands
+## General Commands
+
+```
+/start - Start the bot
+/help - Show help message with all available commands
+/getid - Get your Telegram Chat ID and verify admin status
+```
+
+## Admin Commands
 
 ### Main Admin Panel
 ```
