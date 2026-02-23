@@ -1,0 +1,28 @@
+---
+description: Keep code lightweight for Zeabur free hosting (memory/CPU limits)
+alwaysApply: true
+---
+
+# Zeabur Free Hosting – Keep It Light
+
+This project runs on **Zeabur.com free tier**. Optimize for low memory and CPU so the app stays stable and within limits.
+
+## Do
+
+- **Minimize dependencies**: Add packages only when necessary; prefer built-in Node APIs (`fs`, `http`, `path`, `url`) over heavy libraries.
+- **Avoid large in-memory data**: Don’t load entire `db.json` into memory repeatedly; read/write in small, focused operations where possible.
+- **Use simple data storage**: Keep using `db.json` (single file) unless scale demands otherwise; no extra DB services on free tier.
+- **Limit concurrency**: Avoid spawning many parallel operations (e.g. cap broadcast chunks, don’t run many Playwright/browser instances at once).
+- **Prefer lightweight patterns**: Use `setInterval`/single loops for background tasks; avoid heavy frameworks or real-time engines unless essential.
+- **Trim logs**: Log only what’s needed (errors, key events); avoid verbose debug logs in production.
+
+## Avoid
+
+- Adding heavy frameworks (e.g. full-featured ORMs, extra queue/worker stacks) without a clear need.
+- Loading whole files or large arrays into memory when streaming or pagination would suffice.
+- Running multiple long-lived background processes or unnecessary timers.
+- Introducing large transitive dependencies; check bundle size and dependency count before adding packages.
+
+## When suggesting features
+
+Prefer solutions that use existing stack (Node, Express, file-based DB, Telegram Bot API, Playwright only where needed). If a feature would significantly increase memory or CPU, suggest a lighter alternative or a clear trade-off.

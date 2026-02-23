@@ -170,7 +170,9 @@ function addAccount(chatId, username, accountData) {
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days
         accountEmail: accountData.accountEmail,
+        accountPassword: accountData.accountPassword || null,
         embyUsername: accountData.embyUsername,
+        embyPassword: accountData.embyPassword || null,
         active: true,
         notificationSent: false
     };
@@ -299,11 +301,11 @@ function getBlacklist() {
 function addToBlacklist(chatId, reason, adminId) {
     const data = getLogs();
     if (!data.blacklist) data.blacklist = [];
-    
-    const existing = data.blacklist.find(b => b.chatId === chatId);
+    const id = String(chatId);
+    const existing = data.blacklist.find(b => String(b.chatId) === id);
     if (!existing) {
         data.blacklist.push({
-            chatId,
+            chatId: id,
             reason,
             addedBy: adminId,
             addedAt: new Date().toISOString()
@@ -317,8 +319,8 @@ function addToBlacklist(chatId, reason, adminId) {
 function removeFromBlacklist(chatId) {
     const data = getLogs();
     if (!data.blacklist) return false;
-    
-    const index = data.blacklist.findIndex(b => b.chatId === chatId);
+    const id = String(chatId);
+    const index = data.blacklist.findIndex(b => String(b.chatId) === id);
     if (index !== -1) {
         data.blacklist.splice(index, 1);
         fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
@@ -330,7 +332,8 @@ function removeFromBlacklist(chatId) {
 function isBlacklisted(chatId) {
     const data = getLogs();
     if (!data.blacklist) return false;
-    return data.blacklist.some(b => b.chatId === chatId);
+    const id = String(chatId);
+    return data.blacklist.some(b => String(b.chatId) === id);
 }
 
 function getStats() {
@@ -394,7 +397,9 @@ function getAllUsers() {
                 });
             } else {
                 const existing = usersMap.get(log.chatId);
-                if (new Date(log.timestamp) > new Date(existing.lastAction)) {
+                const newTime = new Date(log.timestamp).getTime();
+                const oldTime = new Date(existing.lastAction).getTime();
+                if (!isNaN(newTime) && (isNaN(oldTime) || newTime > oldTime)) {
                     existing.lastAction = log.timestamp;
                 }
             }

@@ -3,7 +3,6 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
-const bodyParser = require('body-parser');
 const TelegramBot = require('node-telegram-bot-api');
 const http = require('http');
 const { run } = require('./embyil/index');
@@ -73,8 +72,6 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection:', reason);
 });
 
-console.log('הבוט פועל...');
-
 // Store WebSocket clients
 let wsClients = [];
 
@@ -110,7 +107,6 @@ setInterval(async () => {
                 });
                 
                 markNotificationSent(chatId, account.id);
-                console.log(`Expiry notification sent to ${chatId}`);
             } catch (error) {
                 console.error(`Failed to send notification to ${chatId}:`, error.message);
             }
@@ -159,13 +155,8 @@ const ADMIN_CHAT_ID = ADMIN_CHAT_IDS_ARRAY[0] ?? null; // backward compat for ge
 const REQUIRED_GROUP_ID = process.env.REQUIRED_GROUP_ID ? process.env.REQUIRED_GROUP_ID.trim() : null;
 const REQUIRED_GROUP_INVITE = process.env.REQUIRED_GROUP_INVITE || 'https://t.me/+F7ywFh8iVpVjODBk';
 
-// Log admin config on startup for debugging
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🔐 Admin Configuration:');
-console.log(`   Admin IDs: ${ADMIN_CHAT_IDS_ARRAY.length ? ADMIN_CHAT_IDS_ARRAY.join(', ') : 'none'}`);
-console.log(`   Admin Enabled: ${ADMIN_CHAT_IDS_ARRAY.length > 0 ? '✅ YES' : '❌ NO - SET ADMIN_CHAT_ID OR ADMIN_CHAT_IDS IN ENV'}`);
-console.log(`   Required Group: ${REQUIRED_GROUP_ID ? '✅ YES (users must join to use bot)' : '❌ NO'}`);
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+// Admin config (minimal log for Zeabur)
+if (ADMIN_CHAT_IDS_ARRAY.length === 0) console.warn('ADMIN_CHAT_ID or ADMIN_CHAT_IDS not set');
 
 // Notify all admins (e.g. new user / new account alerts). Silently skip if no admins or send fails.
 async function notifyAdmins(message, options = { parse_mode: 'HTML' }) {
@@ -178,10 +169,11 @@ async function notifyAdmins(message, options = { parse_mode: 'HTML' }) {
     }
 }
 
-// Helper: format last activity for display
+// Helper: format last activity for display (handles invalid/missing or he-IL locale timestamps)
 function formatLastActivity(timestamp) {
-    if (!timestamp) return 'לא ידוע';
+    if (timestamp === undefined || timestamp === null || timestamp === '') return 'לא ידוע';
     const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return 'לא ידוע';
     const now = new Date();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
@@ -191,7 +183,11 @@ function formatLastActivity(timestamp) {
     if (diffMins < 60) return `לפני ${diffMins} דקות`;
     if (diffHours < 24) return `לפני ${diffHours} שעות`;
     if (diffDays < 7) return `לפני ${diffDays} ימים`;
-    return date.toLocaleString('he-IL');
+    try {
+        return date.toLocaleString('he-IL');
+    } catch (e) {
+        return date.toISOString ? date.toISOString().slice(0, 10) : 'לא ידוע';
+    }
 }
 
 // Help Command
@@ -792,9 +788,6 @@ bot.on('callback_query', async (callbackQuery) => {
             return;
         }
         
-        // Debug logging
-        console.log(`📞 Callback received: ${data} from user ${chatId} (Admin: ${isAdmin(chatId)})`);
-
     // === USER CALLBACKS ===
     if (data === 'create_account') {
         bot.answerCallbackQuery(callbackQuery.id);
@@ -1022,17 +1015,11 @@ ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבו�
     }
     
     // === ADMIN CALLBACKS ===
-    else if (data.startsWith('admin_')) {
-        console.log(`🔐 Admin callback detected: ${data}`);
-        
-        // Check admin permission for all admin actions
+        else if (data.startsWith('admin_')) {
         if (!isAdmin(chatId)) {
-            console.log(`⛔ Access denied for user ${chatId} (not admin)`);
             await bot.answerCallbackQuery(callbackQuery.id, { text: '⛔ אין לך הרשאות' });
             return;
         }
-        
-        console.log(`✅ Admin access granted for ${chatId}`);
         
         if (data === 'admin_stats') {
             await bot.answerCallbackQuery(callbackQuery.id);
@@ -1162,14 +1149,17 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
                 const timeLeft = acc.active ? 
                     Math.max(0, Math.floor((expiresAt - new Date()) / (1000 * 60 * 60))) + ' שעות' : 
                     'פג תוקף';
+                const embyUser = escapeHTML(acc.embyUsername || '—');
+                const embyPass = (acc.embyPassword != null && acc.embyPassword !== '') ? escapeHTML(acc.embyPassword) : '—';
                 
-                userMessage += `\n${idx + 1}. ${status} ${acc.embyUsername}`;
+                userMessage += `\n${idx + 1}. ${status} <b>${embyUser}</b>`;
+                userMessage += `\n   🔑 סיסמה: <code>${embyPass}</code>`;
                 userMessage += `\n   ⏰ ${timeLeft}\n`;
             });
         }
         
         const lastActionDate = user.lastAction ? new Date(user.lastAction) : null;
-        const lastActionStr = lastActionDate && !isNaN(lastActionDate.getTime()) ? lastActionDate.toLocaleString('he-IL') : 'לא ידוע';
+        const lastActionStr = (lastActionDate && !isNaN(lastActionDate.getTime())) ? lastActionDate.toLocaleString('he-IL') : 'לא ידוע';
         userMessage += `\n📅 <b>פעילות אחרונה:</b> ${formatLastActivity(user.lastAction)} (${lastActionStr})`;
         
         const keyboard = [];
@@ -1373,7 +1363,6 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
         }
         
         else if (data === 'admin_menu') {
-            console.log(`🎯 Admin menu requested by ${chatId}`);
             
             try {
                 await bot.answerCallbackQuery(callbackQuery.id);
@@ -1414,9 +1403,8 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
                     reply_markup: keyboard
                 });
                 
-                console.log(`✅ Admin menu sent to ${chatId}`);
             } catch (error) {
-                console.error(`❌ Error showing admin menu:`, error);
+                console.error('Admin menu error:', error.message);
                 await bot.sendMessage(chatId, `❌ שגיאה בפתיחת תפריט האדמין: ${error.message}`);
             }
         }
@@ -1424,7 +1412,6 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
     
     // Catch unhandled callbacks
     else {
-        console.log(`⚠️ Unhandled callback: ${data} from user ${chatId}`);
         await bot.answerCallbackQuery(callbackQuery.id, { text: 'פעולה לא זוהתה' });
     }
     
@@ -1619,7 +1606,7 @@ server.on('upgrade', (request, socket, head) => {
     }
 });
 
-app.use(bodyParser.json());
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API Endpoints
@@ -1703,5 +1690,5 @@ app.post('/api/send-message', async (req, res) => {
 });
 
 server.listen(port, () => {
-    console.log(`Admin Dashboard running at http://localhost:${port}`);
+    console.log(`Listening on port ${port}`);
 });

@@ -61,8 +61,8 @@ npm install
 
 1. Create or use a Telegram group and add your bot to the group.
 2. In the group, send `/getgroupid` (as the admin). The bot will reply with the group ID.
-3. In `.env` set `REQUIRED_GROUP_ID` to that ID and `REQUIRED_GROUP_INVITE` to your group invite link (e.g. `https://t.me/+F7ywFh8iVpVjODBk`).
-4. Restart the bot. Users who are not in the group will be asked to join before they can use the bot; if they leave the group, the bot will ask them to rejoin.
+3. **In your production `.env`** set `REQUIRED_GROUP_ID` to that ID and `REQUIRED_GROUP_INVITE` to your group invite link (e.g. `https://t.me/+F7ywFh8iVpVjODBk`).
+4. Restart the bot. **If `REQUIRED_GROUP_ID` is not set, the group check is skipped** and anyone can use the bot. When set, every non-admin command and button checks group membership; users not in the group are asked to join and cannot use the bot until they do.
 
 ## Running the Application
 

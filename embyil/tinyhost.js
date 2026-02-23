@@ -1,37 +1,29 @@
-const axios = require('axios');
-
 class TempMailAPI {
   constructor(baseUrl = 'https://tinyhost.shop') {
     this.baseUrl = baseUrl;
   }
 
   async getRandomDomains(limit = 20) {
-    const response = await axios.get(`${this.baseUrl}/api/random-domains/`, {
-      params: { limit }
-    });
-    return response.data;
+    const url = `${this.baseUrl}/api/random-domains/?limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   }
 
   async getEmails(domain, user, page = 1, limit = 20) {
-    const response = await axios.get(`${this.baseUrl}/api/email/${domain}/${user}/`, {
-      params: { page, limit }
-    });
-    return response.data;
+    const url = `${this.baseUrl}/api/email/${domain}/${user}/?page=${page}&limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   }
 
   async getEmailDetail(domain, user, emailId) {
-    const response = await axios.get(`${this.baseUrl}/api/email/${domain}/${user}/${emailId}`);
-    return response.data;
+    const url = `${this.baseUrl}/api/email/${domain}/${user}/${emailId}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
   }
 
-  /**
-   * Polls for an email with a specific keyword in the subject or from a specific sender.
-   * @param {string} domain 
-   * @param {string} user 
-   * @param {Object} filters { subjectKeyword, senderKeyword }
-   * @param {number} timeoutMs 
-   * @param {number} intervalMs 
-   */
   async pollForEmail(domain, user, filters = {}, timeoutMs = 120000, intervalMs = 3000) {
     const startTime = Date.now();
     const { subjectKeyword, senderKeyword } = filters;
@@ -39,19 +31,17 @@ class TempMailAPI {
     while (Date.now() - startTime < timeoutMs) {
       try {
         const data = await this.getEmails(domain, user);
-        const email = data.emails.find(e => {
+        const email = data.emails && data.emails.find(e => {
           let match = true;
-          if (subjectKeyword) match = match && e.subject.toLowerCase().includes(subjectKeyword.toLowerCase());
-          if (senderKeyword) match = match && e.sender.toLowerCase().includes(senderKeyword.toLowerCase());
+          if (subjectKeyword) match = match && e.subject && e.subject.toLowerCase().includes(subjectKeyword.toLowerCase());
+          if (senderKeyword) match = match && e.sender && e.sender.toLowerCase().includes(senderKeyword.toLowerCase());
           return match;
         });
-        if (email) {
-          return await this.getEmailDetail(domain, user, email.id);
-        }
-      } catch (error) {
-        console.error('Polling error:', error.message);
+        if (email) return await this.getEmailDetail(domain, user, email.id);
+      } catch (err) {
+        console.error('Polling error:', err.message);
       }
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await new Promise(r => setTimeout(r, intervalMs));
     }
     throw new Error('Timeout waiting for email');
   }
