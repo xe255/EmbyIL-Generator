@@ -157,6 +157,7 @@ const REQUIRED_GROUP_INVITE = process.env.REQUIRED_GROUP_INVITE || 'https://t.me
 
 // Admin config (minimal log for Zeabur)
 if (ADMIN_CHAT_IDS_ARRAY.length === 0) console.warn('ADMIN_CHAT_ID or ADMIN_CHAT_IDS not set');
+if (!REQUIRED_GROUP_ID) console.warn('REQUIRED_GROUP_ID not set - group gate is OFF (anyone can use the bot)');
 
 // Notify all admins (e.g. new user / new account alerts). Silently skip if no admins or send fails.
 async function notifyAdmins(message, options = { parse_mode: 'HTML' }) {
@@ -599,58 +600,7 @@ bot.onText(/\/start/, async (msg) => {
         );
     }
 
-    const accountCount = getAccountCount(chatId);
-    const remainingSlots = 3 - accountCount;
-    
-    const welcomeMessage = `
-🎬 <b>ברוכים הבאים ל-embyIL</b> 🎬
-
-━━━━━━━━━━━━━━━━━━━━
-
-🌟 קבל גישה מיידית לנגן Emby
-⚡ תהליך הרשמה אוטומטי ומהיר
-🎁 תקופת ניסיון של 3 ימים בחינם
-📺 צפייה בכל המכשירים
-🛡️ עד 3 חשבונות בו-זמנית
-
-━━━━━━━━━━━━━━━━━━━━
-
-📊 <b>הסטטיסטיקה שלך:</b>
-• חשבונות פעילים: ${accountCount}/3
-${remainingSlots > 0 ? `• נותרו: ${remainingSlots} חשבונות זמינים` : '• הגעת למגבלת החשבונות'}
-
-━━━━━━━━━━━━━━━━━━━━
-
-<i>לחץ על הכפתור למטה כדי להתחיל</i>
-    `;
-
-    const keyboard = [];
-    if (remainingSlots > 0) {
-        keyboard.push([{ text: '🚀 צור חשבון ניסיון ל-3 ימים', callback_data: 'create_account' }]);
-    }
-    if (accountCount > 0) {
-        keyboard.push([{ text: '📋 החשבונות שלי', callback_data: 'my_accounts' }]);
-    }
-    
-    // Add admin panel button only for admin
-    if (isAdmin(chatId)) {
-        keyboard.push([{ text: '🔐 פאנל אדמין', callback_data: 'admin_menu' }]);
-    }
-
-    // Send welcome image first
-    try {
-        await bot.sendPhoto(chatId, path.join(__dirname, 'welcome_image.jpg'), {
-            caption: welcomeMessage,
-            parse_mode: 'HTML',
-            reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
-        });
-    } catch (error) {
-        // Fallback if image doesn't exist
-        await bot.sendMessage(chatId, welcomeMessage, {
-            parse_mode: 'HTML',
-            reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
-        });
-    }
+    await sendMainMenu(chatId);
 });
 
 // --- Handle /myaccounts Command ---
@@ -748,14 +698,66 @@ async function sendJoinRequiredMessage(chatId) {
 👇 <b>הצטרף כאן:</b>
 ${REQUIRED_GROUP_INVITE}
 
-לאחר ההצטרפה שלח /start שוב.
+לאחר ההצטרפה לחץ על הכפתור למטה: <b>הצטרפתי</b>.
 
-⚠️ אם עזבת את הקבוצה – הבוט יפסיק לעבוד עד שתצטרף מחדש.
+⚠️ אם תעזוב את הקבוצה – הבוט יפסיק לעבוד עד שתצטרף מחדש.
     `;
     await bot.sendMessage(chatId, message, {
         parse_mode: 'HTML',
-        disable_web_page_preview: false
+        disable_web_page_preview: false,
+        reply_markup: {
+            inline_keyboard: [[{ text: '✅ הצטרפתי', callback_data: 'check_joined_group' }]]
+        }
     });
+}
+
+// Send main menu (welcome + keyboard). Used by /start and after "I joined" verification.
+async function sendMainMenu(chatId) {
+    const accountCount = getAccountCount(chatId);
+    const remainingSlots = 3 - accountCount;
+    const welcomeMessage = `
+🎬 <b>ברוכים הבאים ל-embyIL</b> 🎬
+
+━━━━━━━━━━━━━━━━━━━━
+
+🌟 קבל גישה מיידית לנגן Emby
+⚡ תהליך הרשמה אוטומטי ומהיר
+🎁 תקופת ניסיון של 3 ימים בחינם
+📺 צפייה בכל המכשירים
+🛡️ עד 3 חשבונות בו-זמנית
+
+━━━━━━━━━━━━━━━━━━━━
+
+📊 <b>הסטטיסטיקה שלך:</b>
+• חשבונות פעילים: ${accountCount}/3
+${remainingSlots > 0 ? `• נותרו: ${remainingSlots} חשבונות זמינים` : '• הגעת למגבלת החשבונות'}
+
+━━━━━━━━━━━━━━━━━━━━
+
+<i>לחץ על הכפתור למטה כדי להתחיל</i>
+    `;
+    const keyboard = [];
+    if (remainingSlots > 0) {
+        keyboard.push([{ text: '🚀 צור חשבון ניסיון ל-3 ימים', callback_data: 'create_account' }]);
+    }
+    if (accountCount > 0) {
+        keyboard.push([{ text: '📋 החשבונות שלי', callback_data: 'my_accounts' }]);
+    }
+    if (isAdmin(chatId)) {
+        keyboard.push([{ text: '🔐 פאנל אדמין', callback_data: 'admin_menu' }]);
+    }
+    try {
+        await bot.sendPhoto(chatId, path.join(__dirname, 'welcome_image.jpg'), {
+            caption: welcomeMessage,
+            parse_mode: 'HTML',
+            reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
+        });
+    } catch (e) {
+        await bot.sendMessage(chatId, welcomeMessage, {
+            parse_mode: 'HTML',
+            reply_markup: keyboard.length > 0 ? { inline_keyboard: keyboard } : undefined
+        });
+    }
 }
 
 // Store admin conversation states
@@ -780,8 +782,27 @@ bot.on('callback_query', async (callbackQuery) => {
             await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
             return;
         }
-        // Require group membership for non-admins
         const userId = callbackQuery.from.id;
+        
+        // Handle "I joined" button: verify group membership, then show main menu or ask to join again
+        if (data === 'check_joined_group') {
+            if (isAdmin(chatId)) {
+                bot.answerCallbackQuery(callbackQuery.id);
+                await sendMainMenu(chatId);
+                return;
+            }
+            const joined = await hasJoinedGroup(userId);
+            if (joined) {
+                bot.answerCallbackQuery(callbackQuery.id, { text: 'מאומת! ברוך הבא' });
+                await sendMainMenu(chatId);
+                return;
+            }
+            bot.answerCallbackQuery(callbackQuery.id, { text: 'עדיין לא רואים אותך בקבוצה' });
+            await sendJoinRequiredMessage(chatId);
+            return;
+        }
+        
+        // Require group membership for all other non-admin actions
         if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
             bot.answerCallbackQuery(callbackQuery.id);
             await sendJoinRequiredMessage(chatId);
