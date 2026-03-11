@@ -723,6 +723,50 @@ bot.onText(/\/myaccounts/, async (msg) => {
     });
 });
 
+// /promote <id> — quickly promote a user to admin
+bot.onText(/\/promote(?:\s+(\d+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!isAdmin(chatId)) return;
+    const targetId = match[1];
+    if (!targetId) {
+        await bot.sendMessage(chatId, '⚠️ שימוש: /promote <chat_id>\n\nדוגמה: /promote 123456789\n\nאת ה-ID ניתן למצוא ב-/admin → 👥 משתמשים → לחץ על משתמש');
+        return;
+    }
+    if (ADMIN_CHAT_IDS_ARRAY.some(id => id == targetId)) {
+        await bot.sendMessage(chatId, `ℹ️ משתמש <code>${targetId}</code> כבר אדמין (מוגדר ב-env).`, { parse_mode: 'HTML' });
+        return;
+    }
+    const success = addDbAdmin(targetId);
+    if (success) {
+        await bot.sendMessage(chatId, `✅ משתמש <code>${targetId}</code> קודם לאדמין בהצלחה.`, { parse_mode: 'HTML' });
+        try { await bot.sendMessage(parseInt(targetId), '🎉 <b>קודמת לאדמין!</b>\n\nכעת יש לך גישה לפאנל האדמין. השתמש ב-/admin.', { parse_mode: 'HTML' }); } catch (e) {}
+    } else {
+        await bot.sendMessage(chatId, `ℹ️ משתמש <code>${targetId}</code> כבר אדמין.`, { parse_mode: 'HTML' });
+    }
+});
+
+// /demote <id> — remove admin from a dynamically promoted user
+bot.onText(/\/demote(?:\s+(\d+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!isAdmin(chatId)) return;
+    const targetId = match[1];
+    if (!targetId) {
+        await bot.sendMessage(chatId, '⚠️ שימוש: /demote <chat_id>');
+        return;
+    }
+    if (ADMIN_CHAT_IDS_ARRAY.some(id => id == targetId)) {
+        await bot.sendMessage(chatId, `❌ לא ניתן להסיר אדמין שמוגדר ב-env. שנה את ADMIN_CHAT_IDS.`, { parse_mode: 'HTML' });
+        return;
+    }
+    const success = removeDbAdmin(targetId);
+    if (success) {
+        await bot.sendMessage(chatId, `✅ הרשאות האדמין של <code>${targetId}</code> הוסרו.`, { parse_mode: 'HTML' });
+        try { await bot.sendMessage(parseInt(targetId), '⚠️ הרשאות האדמין שלך הוסרו.'); } catch (e) {}
+    } else {
+        await bot.sendMessage(chatId, `ℹ️ משתמש <code>${targetId}</code> אינו אדמין שניתן להסיר.`, { parse_mode: 'HTML' });
+    }
+});
+
 // Check if user is admin (env-var admins + dynamically promoted admins in db.json)
 function isAdmin(chatId) {
     if (ADMIN_CHAT_IDS_ARRAY.some(id => id == chatId)) return true;
