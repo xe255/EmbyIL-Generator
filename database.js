@@ -12,8 +12,23 @@ if (!fs.existsSync(DB_PATH)) {
         progress: {},
         accounts: {},
         userLimits: {},
-        notifications: {}
+        notifications: {},
+        admins: [],
+        unlimitedUsers: [],
+        creationEnabled: true,
+        whitelist: [],
+        whitelistEnabled: false
     }, null, 2));
+} else {
+    // Migrate existing DB: ensure new fields exist
+    const _existing = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    let _changed = false;
+    if (!_existing.admins) { _existing.admins = []; _changed = true; }
+    if (!_existing.unlimitedUsers) { _existing.unlimitedUsers = []; _changed = true; }
+    if (_existing.creationEnabled === undefined) { _existing.creationEnabled = true; _changed = true; }
+    if (!_existing.whitelist) { _existing.whitelist = []; _changed = true; }
+    if (_existing.whitelistEnabled === undefined) { _existing.whitelistEnabled = false; _changed = true; }
+    if (_changed) fs.writeFileSync(DB_PATH, JSON.stringify(_existing, null, 2));
 }
 
 function getLogs() {
@@ -25,7 +40,7 @@ function addLog(chatId, username, action, status, result = null, userInfo = null
     const data = getLogs();
     const newLog = {
         id: Date.now(),
-        timestamp: new Date().toLocaleString('he-IL'),
+        timestamp: new Date().toISOString(),
         chatId,
         username,
         action,
@@ -194,9 +209,14 @@ function getAccountCount(chatId) {
     return accounts.filter(acc => acc.active).length;
 }
 
-function canCreateAccount(chatId) {
-    const MAX_ACCOUNTS = 3; // Maximum accounts per user
-    const COOLDOWN_MINUTES = 5; // Cooldown between creations
+function canCreateAccount(chatId, { skipLimits = false } = {}) {
+    const MAX_ACCOUNTS = 3;
+    const COOLDOWN_MINUTES = 5;
+
+    // Admins and unlimited users bypass all restrictions
+    if (skipLimits || isUnlimitedUser(chatId)) {
+        return { allowed: true };
+    }
     
     const data = getLogs();
     if (!data.userLimits) data.userLimits = {};
@@ -411,6 +431,129 @@ function getAllUsers() {
     );
 }
 
+// Unlimited users (no account cap, no cooldown)
+function isUnlimitedUser(chatId) {
+    const data = getLogs();
+    if (!data.unlimitedUsers) return false;
+    return data.unlimitedUsers.some(id => String(id) === String(chatId));
+}
+
+function addUnlimitedUser(chatId) {
+    const data = getLogs();
+    if (!data.unlimitedUsers) data.unlimitedUsers = [];
+    const id = String(chatId);
+    if (!data.unlimitedUsers.includes(id)) {
+        data.unlimitedUsers.push(id);
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+function removeUnlimitedUser(chatId) {
+    const data = getLogs();
+    if (!data.unlimitedUsers) return false;
+    const id = String(chatId);
+    const index = data.unlimitedUsers.indexOf(id);
+    if (index !== -1) {
+        data.unlimitedUsers.splice(index, 1);
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+// Global account creation on/off switch
+function isCreationEnabled() {
+    const data = getLogs();
+    return data.creationEnabled !== false; // default true
+}
+
+function setCreationEnabled(enabled) {
+    const data = getLogs();
+    data.creationEnabled = enabled;
+    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+}
+
+// Whitelist
+function isWhitelistEnabled() {
+    const data = getLogs();
+    return data.whitelistEnabled === true;
+}
+
+function setWhitelistEnabled(enabled) {
+    const data = getLogs();
+    data.whitelistEnabled = enabled;
+    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+}
+
+function getWhitelist() {
+    const data = getLogs();
+    return data.whitelist || [];
+}
+
+function isWhitelisted(chatId) {
+    const data = getLogs();
+    if (!data.whitelist) return false;
+    return data.whitelist.some(entry => String(entry.chatId) === String(chatId));
+}
+
+function addToWhitelist(chatId, addedBy, note = '') {
+    const data = getLogs();
+    if (!data.whitelist) data.whitelist = [];
+    const id = String(chatId);
+    if (!data.whitelist.some(e => String(e.chatId) === id)) {
+        data.whitelist.push({ chatId: id, addedBy: String(addedBy), note, addedAt: new Date().toISOString() });
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+function removeFromWhitelist(chatId) {
+    const data = getLogs();
+    if (!data.whitelist) return false;
+    const id = String(chatId);
+    const index = data.whitelist.findIndex(e => String(e.chatId) === id);
+    if (index !== -1) {
+        data.whitelist.splice(index, 1);
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+// Dynamic admin management (stored in db.json, in addition to env-var admins)
+function getDbAdmins() {
+    const data = getLogs();
+    return data.admins || [];
+}
+
+function addDbAdmin(chatId) {
+    const data = getLogs();
+    if (!data.admins) data.admins = [];
+    const id = String(chatId);
+    if (!data.admins.includes(id)) {
+        data.admins.push(id);
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
+function removeDbAdmin(chatId) {
+    const data = getLogs();
+    if (!data.admins) return false;
+    const id = String(chatId);
+    const index = data.admins.indexOf(id);
+    if (index !== -1) {
+        data.admins.splice(index, 1);
+        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        return true;
+    }
+    return false;
+}
+
 module.exports = { 
     getLogs, 
     addLog, 
@@ -433,5 +576,23 @@ module.exports = {
     removeFromBlacklist,
     isBlacklisted,
     getStats,
-    getAllUsers
+    getAllUsers,
+    // Dynamic admin promotion
+    getDbAdmins,
+    addDbAdmin,
+    removeDbAdmin,
+    // Unlimited users
+    isUnlimitedUser,
+    addUnlimitedUser,
+    removeUnlimitedUser,
+    // Global creation switch
+    isCreationEnabled,
+    setCreationEnabled,
+    // Whitelist
+    isWhitelistEnabled,
+    setWhitelistEnabled,
+    getWhitelist,
+    isWhitelisted,
+    addToWhitelist,
+    removeFromWhitelist
 };

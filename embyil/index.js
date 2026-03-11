@@ -164,7 +164,7 @@ async function run(statusCallback = () => { }) {
             const dialog = page.locator(dialogSelector);
 
             embyLogin = generateNumericString(6);
-            embyPassword = generateNumericString(4);
+            embyPassword = '1111';
 
             await strongFill('input[name="login"]', embyLogin, dialog);
             await strongFill('input[name="password"]', embyPassword, dialog);
@@ -212,7 +212,7 @@ async function run(statusCallback = () => { }) {
             }
 
             embyLogin = generateNumericString(6);
-            embyPassword = generateNumericString(4);
+            embyPassword = '1111';
 
             await page.waitForSelector('input[name="login"]', { timeout: 30000 });
             await strongFill('input[name="login"]', embyLogin);

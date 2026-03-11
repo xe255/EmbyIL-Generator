@@ -25,7 +25,22 @@ const {
     removeFromBlacklist,
     isBlacklisted,
     getStats,
-    getAllUsers
+    getAllUsers,
+    getDbAdmins,
+    addDbAdmin,
+    removeDbAdmin,
+    isUnlimitedUser,
+    addUnlimitedUser,
+    removeUnlimitedUser,
+    isCreationEnabled,
+    setCreationEnabled,
+    // Whitelist
+    isWhitelistEnabled,
+    setWhitelistEnabled,
+    getWhitelist,
+    isWhitelisted,
+    addToWhitelist,
+    removeFromWhitelist
 } = require('./database');
 
 // --- Configuration ---
@@ -48,6 +63,20 @@ const bot = new TelegramBot(token, {
         }
     }
 });
+
+// Validate group access at startup when REQUIRED_GROUP_ID is set
+if (REQUIRED_GROUP_ID) {
+    (async () => {
+        try {
+            await bot.getChat(REQUIRED_GROUP_ID);
+            console.log('✅ Group gate ON: bot can access required group', REQUIRED_GROUP_ID);
+        } catch (e) {
+            console.error('❌ Group gate FAILED: bot cannot access group', REQUIRED_GROUP_ID);
+            console.error('   Error:', e.message);
+            console.error('   → Add the bot to your group and ensure REQUIRED_GROUP_ID is correct.');
+        }
+    })();
+}
 
 // Handle polling errors gracefully
 bot.on('polling_error', (error) => {
@@ -151,13 +180,20 @@ const parseAdminIds = () => {
 const ADMIN_CHAT_IDS_ARRAY = parseAdminIds();
 const ADMIN_CHAT_ID = ADMIN_CHAT_IDS_ARRAY[0] ?? null; // backward compat for getid message etc.
 
-// Required group: users must be members to use the bot. Bot must be added to the group; get ID with /getgroupid in the group.
-const REQUIRED_GROUP_ID = process.env.REQUIRED_GROUP_ID ? process.env.REQUIRED_GROUP_ID.trim() : null;
+// Required group: users MUST be members to use the bot. Bot must be in the group.
+// Set REQUIRED_GROUP_ID in .env - run /getgroupid inside your group to get the ID.
+// IMPORTANT: In Zeabur, add REQUIRED_GROUP_ID to Environment Variables in the dashboard!
+const _groupIdRaw = process.env.REQUIRED_GROUP_ID;
+const _groupId = (typeof _groupIdRaw === 'string' && _groupIdRaw.trim()) ? _groupIdRaw.trim() : null;
+const REQUIRED_GROUP_ID = _groupId;
 const REQUIRED_GROUP_INVITE = process.env.REQUIRED_GROUP_INVITE || 'https://t.me/+F7ywFh8iVpVjODBk';
 
 // Admin config (minimal log for Zeabur)
 if (ADMIN_CHAT_IDS_ARRAY.length === 0) console.warn('ADMIN_CHAT_ID or ADMIN_CHAT_IDS not set');
-if (!REQUIRED_GROUP_ID) console.warn('REQUIRED_GROUP_ID not set - group gate is OFF (anyone can use the bot)');
+if (!REQUIRED_GROUP_ID) {
+    console.warn('⚠️ REQUIRED_GROUP_ID not set - group gate is OFF (anyone can use the bot)!');
+    console.warn('   To enable: add bot to your group, run /getgroupid there, then set REQUIRED_GROUP_ID in Zeabur env vars.');
+}
 
 // Notify all admins (e.g. new user / new account alerts). Silently skip if no admins or send fails.
 async function notifyAdmins(message, options = { parse_mode: 'HTML' }) {
@@ -195,12 +231,12 @@ function formatLastActivity(timestamp) {
 bot.onText(/\/help/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    if (!isAdmin(chatId) && isBlacklisted(chatId)) {
-        await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
-        return;
-    }
     if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
         await sendJoinRequiredMessage(chatId);
+        return;
+    }
+    if (!isAdmin(chatId) && isBlacklisted(chatId)) {
+        await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
         return;
     }
     const isAdminUser = isAdmin(chatId);
@@ -270,12 +306,12 @@ bot.onText(/\/help/, async (msg) => {
 bot.onText(/\/getid/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    if (!isAdmin(chatId) && isBlacklisted(chatId)) {
-        await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
-        return;
-    }
     if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
         await sendJoinRequiredMessage(chatId);
+        return;
+    }
+    if (!isAdmin(chatId) && isBlacklisted(chatId)) {
+        await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
         return;
     }
     const username = msg.from.username || msg.from.first_name || 'Unknown';
@@ -297,6 +333,7 @@ bot.onText(/\/getid/, async (msg) => {
 
 <b>Admin IDs:</b> ${ADMIN_CHAT_IDS_ARRAY.length ? ADMIN_CHAT_IDS_ARRAY.join(', ') : 'Not Set ❌'}
 <b>Are you admin?</b> ${isAdmin(chatId) ? '✅ YES' : '❌ NO'}
+<b>Group gate:</b> ${REQUIRED_GROUP_ID ? '✅ ON (group ' + REQUIRED_GROUP_ID + ')' : '❌ OFF - anyone can use bot!'}
     `;
     
     await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -341,6 +378,8 @@ bot.onText(/\/admin/, async (msg) => {
 ━━━━━━━━━━━━━━━━━━━━
     `;
     
+    const creationOn = isCreationEnabled();
+    const wlOn = isWhitelistEnabled();
     const keyboard = {
         inline_keyboard: [
             [
@@ -352,7 +391,12 @@ bot.onText(/\/admin/, async (msg) => {
                 { text: '💼 חשבונות', callback_data: 'admin_accounts' }
             ],
             [
-                { text: '🚫 חסומים', callback_data: 'admin_blacklist' }
+                { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
+                { text: creationOn ? '🟢 יצירה: פעיל' : '🔴 יצירה: כבוי', callback_data: 'admin_toggle_creation' }
+            ],
+            [
+                { text: '📋 רשימה לבנה', callback_data: 'admin_whitelist' },
+                { text: wlOn ? '🟢 רשימה לבנה: פעיל' : '⚪ רשימה לבנה: כבוי', callback_data: 'admin_toggle_whitelist' }
             ]
         ]
     };
@@ -562,12 +606,19 @@ bot.onText(/\/broadcast/, async (msg) => {
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
+    // Group gate first: non-admin must be in group or we only show join message
+    if (REQUIRED_GROUP_ID && !isAdmin(chatId)) {
+        if (!(await hasJoinedGroup(userId))) {
+            await sendJoinRequiredMessage(chatId);
+            return;
+        }
+    }
     if (!isAdmin(chatId) && isBlacklisted(chatId)) {
         await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
         return;
     }
-    if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
-        await sendJoinRequiredMessage(chatId);
+    if (isWhitelistBlocked(chatId)) {
+        await bot.sendMessage(chatId, '🔒 <b>גישה מוגבלת</b>\n\nהבוט פועל במצב רשימה לבנה. פנה למנהל הבוט לקבלת גישה.', { parse_mode: 'HTML' });
         return;
     }
     const username = msg.from.username || msg.from.first_name || 'Missing';
@@ -607,12 +658,12 @@ bot.onText(/\/start/, async (msg) => {
 bot.onText(/\/myaccounts/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    if (!isAdmin(chatId) && isBlacklisted(chatId)) {
-        await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
-        return;
-    }
     if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
         await sendJoinRequiredMessage(chatId);
+        return;
+    }
+    if (!isAdmin(chatId) && isBlacklisted(chatId)) {
+        await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
         return;
     }
     const accounts = getUserAccounts(chatId);
@@ -672,20 +723,89 @@ bot.onText(/\/myaccounts/, async (msg) => {
     });
 });
 
-// Check if user is admin
+// Check if user is admin (env-var admins + dynamically promoted admins in db.json)
 function isAdmin(chatId) {
-    return ADMIN_CHAT_IDS_ARRAY.some(id => id == chatId);
+    if (ADMIN_CHAT_IDS_ARRAY.some(id => id == chatId)) return true;
+    const dbAdmins = getDbAdmins();
+    return dbAdmins.some(id => String(id) === String(chatId));
 }
 
-// Check if user is a member of the required group (creator, administrator, member, restricted). Bot must be in the group.
+// Returns true if the user is blocked by the whitelist (whitelist ON and user not in it)
+function isWhitelistBlocked(chatId) {
+    if (isAdmin(chatId)) return false;
+    if (!isWhitelistEnabled()) return false;
+    return !isWhitelisted(chatId);
+}
+
+// /whitelist command — add user by chat ID or @username
+bot.onText(/\/whitelist(?:\s+(.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!isAdmin(chatId)) {
+        await bot.sendMessage(chatId, '⛔ אין לך הרשאות.');
+        return;
+    }
+
+    const arg = (match[1] || '').trim();
+    if (!arg) {
+        const wl = getWhitelist();
+        const enabled = isWhitelistEnabled();
+        let text = `📋 <b>רשימה לבנה</b>\n\n`;
+        text += `סטטוס: ${enabled ? '🟢 פעיל' : '🔴 כבוי'}\n`;
+        text += `משתמשים: <b>${wl.length}</b>\n\n`;
+        if (wl.length > 0) {
+            const allUsers = getAllUsers();
+            wl.forEach((e, i) => {
+                const u = allUsers.find(u => String(u.chatId) === String(e.chatId));
+                const name = u ? (u.firstName + (u.lastName ? ' ' + u.lastName : '')) : `ID ${e.chatId}`;
+                text += `${i + 1}. ${escapeHTML(name)} — <code>${e.chatId}</code>\n`;
+            });
+        }
+        text += `\n<i>שימוש: /whitelist &lt;ID או @username&gt; להוספה/הסרה</i>`;
+        await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+        return;
+    }
+
+    // Resolve argument to a chatId
+    let targetId = null;
+    let targetName = arg;
+
+    if (/^\d+$/.test(arg)) {
+        targetId = arg;
+    } else {
+        const handle = arg.replace(/^@/, '').toLowerCase();
+        const allUsers = getAllUsers();
+        const found = allUsers.find(u => u.telegramUsername && u.telegramUsername.toLowerCase() === handle);
+        if (found) {
+            targetId = String(found.chatId);
+            targetName = found.firstName + (found.lastName ? ' ' + found.lastName : '');
+        } else {
+            await bot.sendMessage(chatId, `❌ לא נמצא משתמש עם username <b>${escapeHTML(arg)}</b> במערכת.\n\nהשתמש ב-ID ישירות במקום.`, { parse_mode: 'HTML' });
+            return;
+        }
+    }
+
+    if (isWhitelisted(targetId)) {
+        removeFromWhitelist(targetId);
+        await bot.sendMessage(chatId, `🗑 <b>${escapeHTML(targetName)}</b> (<code>${targetId}</code>) הוסר מהרשימה הלבנה.`, { parse_mode: 'HTML' });
+        try { await bot.sendMessage(parseInt(targetId), '🔒 הוסרת מהרשימה הלבנה של הבוט.'); } catch (e) {}
+    } else {
+        addToWhitelist(targetId, chatId);
+        await bot.sendMessage(chatId, `✅ <b>${escapeHTML(targetName)}</b> (<code>${targetId}</code>) נוסף לרשימה הלבנה.`, { parse_mode: 'HTML' });
+        try { await bot.sendMessage(parseInt(targetId), '✅ נוספת לרשימה הלבנה — כעת יש לך גישה לבוט.'); } catch (e) {}
+    }
+});
+
+// Check if user is a member of the required group. Bot must be in the group. Returns false on any error so we block access.
 async function hasJoinedGroup(userId) {
-    if (!REQUIRED_GROUP_ID) return true;
+    if (!REQUIRED_GROUP_ID) return true; // Gate off - allow all (with warning at startup)
     try {
-        const member = await bot.getChatMember(REQUIRED_GROUP_ID, userId);
-        const status = (member && member.status) ? member.status.toLowerCase() : '';
+        const groupId = /^-?\d+$/.test(REQUIRED_GROUP_ID) ? parseInt(REQUIRED_GROUP_ID, 10) : REQUIRED_GROUP_ID;
+        const member = await bot.getChatMember(groupId, String(userId));
+        const status = (member && member.status) ? String(member.status).toLowerCase() : '';
         return ['creator', 'administrator', 'member', 'restricted'].includes(status);
     } catch (e) {
-        return false;
+        console.error('hasJoinedGroup failed for user', userId, ':', e.message);
+        return false; // Block on any error (e.g. user not in group, bot not in group)
     }
 }
 
@@ -714,7 +834,9 @@ ${REQUIRED_GROUP_INVITE}
 // Send main menu (welcome + keyboard). Used by /start and after "I joined" verification.
 async function sendMainMenu(chatId) {
     const accountCount = getAccountCount(chatId);
-    const remainingSlots = 3 - accountCount;
+    const unlimited = isAdmin(chatId) || isUnlimitedUser(chatId);
+    const remainingSlots = unlimited ? Infinity : 3 - accountCount;
+    const slotsDisplay = unlimited ? '∞' : `${3 - accountCount}`;
     const welcomeMessage = `
 🎬 <b>ברוכים הבאים ל-embyIL</b> 🎬
 
@@ -724,13 +846,13 @@ async function sendMainMenu(chatId) {
 ⚡ תהליך הרשמה אוטומטי ומהיר
 🎁 תקופת ניסיון של 3 ימים בחינם
 📺 צפייה בכל המכשירים
-🛡️ עד 3 חשבונות בו-זמנית
+🛡️ ${unlimited ? 'חשבונות ללא הגבלה' : 'עד 3 חשבונות בו-זמנית'}
 
 ━━━━━━━━━━━━━━━━━━━━
 
 📊 <b>הסטטיסטיקה שלך:</b>
-• חשבונות פעילים: ${accountCount}/3
-${remainingSlots > 0 ? `• נותרו: ${remainingSlots} חשבונות זמינים` : '• הגעת למגבלת החשבונות'}
+• חשבונות פעילים: ${accountCount}${unlimited ? '' : '/3'}
+${remainingSlots > 0 ? `• נותרו: ${slotsDisplay} חשבונות זמינים` : '• הגעת למגבלת החשבונות'}
 
 ━━━━━━━━━━━━━━━━━━━━
 
@@ -767,8 +889,9 @@ const adminStates = new Map();
 bot.on('callback_query', async (callbackQuery) => {
     try {
         const chatId = callbackQuery.message.chat.id;
-        const username = callbackQuery.from.username || callbackQuery.from.first_name || 'Missing';
+        const userId = callbackQuery.from.id;
         const data = callbackQuery.data;
+        const username = callbackQuery.from.username || callbackQuery.from.first_name || 'Missing';
         const userInfo = {
             id: callbackQuery.from.id,
             username: callbackQuery.from.username,
@@ -776,36 +899,41 @@ bot.on('callback_query', async (callbackQuery) => {
             last_name: callbackQuery.from.last_name
         };
         
-        // Block blacklisted users from any bot interaction (except they never reach admin callbacks)
+        // 1) Group gate FIRST: non-admin must be in group. Only "I joined" button is allowed through to verify.
+        if (REQUIRED_GROUP_ID && !isAdmin(chatId)) {
+            if (data === 'check_joined_group') {
+                const joined = await hasJoinedGroup(userId);
+                if (joined) {
+                    bot.answerCallbackQuery(callbackQuery.id, { text: 'מאומת! ברוך הבא' });
+                    await sendMainMenu(chatId);
+                    return;
+                }
+                bot.answerCallbackQuery(callbackQuery.id, { text: 'עדיין לא רואים אותך בקבוצה' });
+                await sendJoinRequiredMessage(chatId);
+                return;
+            }
+            if (!(await hasJoinedGroup(userId))) {
+                bot.answerCallbackQuery(callbackQuery.id);
+                await sendJoinRequiredMessage(chatId);
+                return;
+            }
+        } else if (data === 'check_joined_group' && isAdmin(chatId)) {
+            bot.answerCallbackQuery(callbackQuery.id);
+            await sendMainMenu(chatId);
+            return;
+        }
+        
+        // 2) Block blacklisted users
         if (!isAdmin(chatId) && isBlacklisted(chatId)) {
             bot.answerCallbackQuery(callbackQuery.id);
             await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
             return;
         }
-        const userId = callbackQuery.from.id;
-        
-        // Handle "I joined" button: verify group membership, then show main menu or ask to join again
-        if (data === 'check_joined_group') {
-            if (isAdmin(chatId)) {
-                bot.answerCallbackQuery(callbackQuery.id);
-                await sendMainMenu(chatId);
-                return;
-            }
-            const joined = await hasJoinedGroup(userId);
-            if (joined) {
-                bot.answerCallbackQuery(callbackQuery.id, { text: 'מאומת! ברוך הבא' });
-                await sendMainMenu(chatId);
-                return;
-            }
-            bot.answerCallbackQuery(callbackQuery.id, { text: 'עדיין לא רואים אותך בקבוצה' });
-            await sendJoinRequiredMessage(chatId);
-            return;
-        }
-        
-        // Require group membership for all other non-admin actions
-        if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
+
+        // 3) Block users not on whitelist (when whitelist is enabled)
+        if (isWhitelistBlocked(chatId)) {
             bot.answerCallbackQuery(callbackQuery.id);
-            await sendJoinRequiredMessage(chatId);
+            await bot.sendMessage(chatId, '🔒 <b>גישה מוגבלת</b>\n\nהבוט פועל במצב רשימה לבנה. פנה למנהל הבוט לקבלת גישה.', { parse_mode: 'HTML' });
             return;
         }
         
@@ -818,9 +946,15 @@ bot.on('callback_query', async (callbackQuery) => {
             await bot.sendMessage(chatId, '🚫 אינך מורשה להשתמש בבוט זה.');
             return;
         }
+
+        // Check global creation switch (admins bypass this)
+        if (!isAdmin(chatId) && !isCreationEnabled()) {
+            await bot.sendMessage(chatId, '🔒 <b>יצירת חשבונות מושבתת כרגע.</b>\n\nאנא נסה שוב מאוחר יותר.', { parse_mode: 'HTML' });
+            return;
+        }
         
-        // Check if user can create account
-        const limitCheck = canCreateAccount(chatId);
+        // Check limits — admins are fully exempt
+        const limitCheck = canCreateAccount(chatId, { skipLimits: isAdmin(chatId) });
         if (!limitCheck.allowed) {
             const accountCount = getAccountCount(chatId);
             const userAccounts = getUserAccounts(chatId);
@@ -982,9 +1116,23 @@ ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבו�
                 chatId: chatId,
                 username: username
             });
-            // Notify admins of new account
+            // Notify admins of new account with full details
+            const displayName = (callbackQuery.from.first_name || '') + (callbackQuery.from.last_name ? ' ' + callbackQuery.from.last_name : '');
             await notifyAdmins(
-                `✅ <b>חשבון חדש נוצר</b>\n\n👤 ${escapeHTML(username)}\n🆔 <code>${chatId}</code>\n📧 ${escapeHTML(result.embyUsername)}`
+`✅ <b>חשבון חדש נוצר!</b>
+
+━━━━━━━━━━━━━━━━━━━━
+👤 <b>משתמש טלגרם:</b> ${escapeHTML(displayName || username)}
+📱 <b>Username:</b> @${escapeHTML(username)}
+🆔 <b>Chat ID:</b> <code>${chatId}</code>
+
+━━━━━━━━━━━━━━━━━━━━
+📧 <b>אימייל אתר:</b> <code>${escapeHTML(result.accountEmail)}</code>
+🔑 <b>סיסמת אתר:</b> <code>${escapeHTML(result.accountPassword)}</code>
+
+🎮 <b>שם משתמש Emby:</b> <code>${escapeHTML(result.embyUsername)}</code>
+🔐 <b>סיסמת Emby:</b> <code>${escapeHTML(result.embyPassword)}</code>
+━━━━━━━━━━━━━━━━━━━━`
             );
         }
     }
@@ -1190,6 +1338,28 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
         } else {
             keyboard.push([{ text: '🚫 חסום משתמש', callback_data: `admin_ban_${targetUserId}` }]);
         }
+
+        const isTargetAdmin = isAdmin(targetUserId);
+        const isEnvAdmin = ADMIN_CHAT_IDS_ARRAY.some(id => id == targetUserId);
+        if (!isEnvAdmin) {
+            if (isTargetAdmin) {
+                keyboard.push([{ text: '👑 הסר הרשאות אדמין', callback_data: `admin_demote_${targetUserId}` }]);
+            } else {
+                keyboard.push([{ text: '⭐ קדם לאדמין', callback_data: `admin_promote_${targetUserId}` }]);
+            }
+        }
+
+        if (isUnlimitedUser(targetUserId)) {
+            keyboard.push([{ text: '🔒 הסר הרשאת ללא הגבלה', callback_data: `admin_unulimited_${targetUserId}` }]);
+        } else {
+            keyboard.push([{ text: '♾️ הפוך למשתמש ללא הגבלה', callback_data: `admin_unlimited_${targetUserId}` }]);
+        }
+
+        if (isWhitelisted(targetUserId)) {
+            keyboard.push([{ text: '🗑 הסר מרשימה לבנה', callback_data: `admin_wl_remove_${targetUserId}` }]);
+        } else {
+            keyboard.push([{ text: '📋 הוסף לרשימה לבנה', callback_data: `admin_wl_add_${targetUserId}` }]);
+        }
         
         keyboard.push(
             [{ text: '💬 שלח הודעה', callback_data: `admin_message_${targetUserId}` }],
@@ -1244,6 +1414,78 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
             }
         }
         
+        else if (data.startsWith('admin_promote_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מקדם לאדמין...' });
+            const targetUserId = data.replace('admin_promote_', '');
+            const success = addDbAdmin(targetUserId);
+            if (success) {
+                await bot.sendMessage(chatId, `✅ משתמש ${targetUserId} קודם לאדמין בהצלחה.`, {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetUserId}` }]]
+                    }
+                });
+                try {
+                    await bot.sendMessage(parseInt(targetUserId), '🎉 <b>קודמת לאדמין!</b>\n\nכעת יש לך גישה לפאנל האדמין. השתמש ב-/admin כדי לגשת אליו.', { parse_mode: 'HTML' });
+                } catch (e) { /* user may have blocked bot */ }
+            } else {
+                await bot.sendMessage(chatId, `⚠️ משתמש ${targetUserId} כבר אדמין.`);
+            }
+        }
+
+        else if (data.startsWith('admin_demote_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מסיר הרשאות אדמין...' });
+            const targetUserId = data.replace('admin_demote_', '');
+            const success = removeDbAdmin(targetUserId);
+            if (success) {
+                await bot.sendMessage(chatId, `✅ הרשאות האדמין של משתמש ${targetUserId} הוסרו.`, {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetUserId}` }]]
+                    }
+                });
+                try {
+                    await bot.sendMessage(parseInt(targetUserId), '⚠️ הרשאות האדמין שלך הוסרו.', { parse_mode: 'HTML' });
+                } catch (e) { /* user may have blocked bot */ }
+            } else {
+                await bot.sendMessage(chatId, `⚠️ משתמש ${targetUserId} אינו אדמין שניתן להסיר.`);
+            }
+        }
+
+        else if (data.startsWith('admin_unlimited_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מגדיר כמשתמש ללא הגבלה...' });
+            const targetUserId = data.replace('admin_unlimited_', '');
+            const success = addUnlimitedUser(targetUserId);
+            if (success) {
+                await bot.sendMessage(chatId, `♾️ משתמש ${targetUserId} הוגדר כמשתמש ללא הגבלה.`, {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetUserId}` }]]
+                    }
+                });
+                try {
+                    await bot.sendMessage(parseInt(targetUserId), '♾️ <b>קיבלת הרשאת ללא הגבלה!</b>\n\nכעת אין לך מגבלה על מספר החשבונות או זמן ההמתנה.', { parse_mode: 'HTML' });
+                } catch (e) { }
+            } else {
+                await bot.sendMessage(chatId, `⚠️ משתמש ${targetUserId} כבר ללא הגבלה.`);
+            }
+        }
+
+        else if (data.startsWith('admin_unulimited_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מסיר הרשאת ללא הגבלה...' });
+            const targetUserId = data.replace('admin_unulimited_', '');
+            const success = removeUnlimitedUser(targetUserId);
+            if (success) {
+                await bot.sendMessage(chatId, `🔒 הרשאת ללא הגבלה של משתמש ${targetUserId} הוסרה.`, {
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetUserId}` }]]
+                    }
+                });
+                try {
+                    await bot.sendMessage(parseInt(targetUserId), '🔒 הרשאת ללא ההגבלה שלך הוסרה.', { parse_mode: 'HTML' });
+                } catch (e) { }
+            } else {
+                await bot.sendMessage(chatId, `⚠️ משתמש ${targetUserId} אינו משתמש ללא הגבלה.`);
+            }
+        }
+
         else if (data.startsWith('admin_message_')) {
         await bot.answerCallbackQuery(callbackQuery.id);
         const targetUserId = data.replace('admin_message_', '');
@@ -1383,6 +1625,101 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
             });
         }
         
+        else if (data === 'admin_whitelist') {
+            await bot.answerCallbackQuery(callbackQuery.id);
+            const wl = getWhitelist();
+            const enabled = isWhitelistEnabled();
+            const allUsers = getAllUsers();
+
+            let message = `📋 <b>רשימה לבנה</b>\n\n`;
+            message += `סטטוס: ${enabled ? '🟢 פעיל — רק משתמשים ברשימה יכולים להשתמש' : '⚪ כבוי — כל המשתמשים יכולים להשתמש'}\n`;
+            message += `סה"כ: <b>${wl.length}</b> משתמשים\n\n`;
+
+            const keyboard = [];
+            if (wl.length === 0) {
+                message += `<i>הרשימה ריקה. הוסף משתמשים דרך כפתור "הוסף לרשימה לבנה" בפרטי משתמש, או בפקודה /whitelist @username</i>`;
+            } else {
+                wl.forEach(e => {
+                    const u = allUsers.find(u => String(u.chatId) === String(e.chatId));
+                    const name = u ? (u.firstName + (u.lastName ? ' ' + u.lastName : '')) : `ID ${e.chatId}`;
+                    keyboard.push([{
+                        text: `🗑 הסר: ${name}`,
+                        callback_data: `admin_wl_remove_${e.chatId}`
+                    }]);
+                });
+            }
+
+            keyboard.push([{ text: enabled ? '🔴 כבה רשימה לבנה' : '🟢 הפעל רשימה לבנה', callback_data: 'admin_toggle_whitelist' }]);
+            keyboard.push([{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]);
+
+            await bot.sendMessage(chatId, message, {
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: keyboard }
+            });
+        }
+
+        else if (data.startsWith('admin_wl_remove_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מסיר מהרשימה הלבנה...' });
+            const targetId = data.replace('admin_wl_remove_', '');
+            const success = removeFromWhitelist(targetId);
+            if (success) {
+                await bot.sendMessage(chatId, `🗑 משתמש <code>${targetId}</code> הוסר מהרשימה הלבנה.`, {
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetId}` }]] }
+                });
+                try { await bot.sendMessage(parseInt(targetId), '🔒 הוסרת מהרשימה הלבנה של הבוט.'); } catch (e) {}
+            } else {
+                await bot.sendMessage(chatId, `⚠️ משתמש לא נמצא ברשימה הלבנה.`);
+            }
+        }
+
+        else if (data.startsWith('admin_wl_add_')) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'מוסיף לרשימה הלבנה...' });
+            const targetId = data.replace('admin_wl_add_', '');
+            const success = addToWhitelist(targetId, chatId);
+            if (success) {
+                await bot.sendMessage(chatId, `✅ משתמש <code>${targetId}</code> נוסף לרשימה הלבנה.`, {
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: [[{ text: '🔙 חזרה לפרטי משתמש', callback_data: `admin_user_${targetId}` }]] }
+                });
+                try { await bot.sendMessage(parseInt(targetId), '✅ נוספת לרשימה הלבנה — כעת יש לך גישה לבוט.'); } catch (e) {}
+            } else {
+                await bot.sendMessage(chatId, `⚠️ משתמש <code>${targetId}</code> כבר ברשימה הלבנה.`, { parse_mode: 'HTML' });
+            }
+        }
+
+        else if (data === 'admin_toggle_whitelist') {
+            const current = isWhitelistEnabled();
+            setWhitelistEnabled(!current);
+            const nowEnabled = !current;
+            await bot.answerCallbackQuery(callbackQuery.id, { text: nowEnabled ? '🟢 רשימה לבנה הופעלה' : '⚪ רשימה לבנה כובתה' });
+            await bot.sendMessage(chatId,
+                nowEnabled
+                    ? '🟢 <b>רשימה לבנה הופעלה.</b>\n\nרק משתמשים ברשימה הלבנה יוכלו להשתמש בבוט.'
+                    : '⚪ <b>רשימה לבנה כובתה.</b>\n\nכל המשתמשים (שאינם חסומים) יוכלו להשתמש בבוט.',
+                {
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]] }
+                }
+            );
+        }
+
+        else if (data === 'admin_toggle_creation') {
+            const current = isCreationEnabled();
+            setCreationEnabled(!current);
+            const nowEnabled = !current;
+            await bot.answerCallbackQuery(callbackQuery.id, { text: nowEnabled ? '✅ יצירת חשבונות הופעלה' : '🔴 יצירת חשבונות הושבתה' });
+            await bot.sendMessage(chatId,
+                nowEnabled
+                    ? '🟢 <b>יצירת חשבונות הופעלה.</b>\n\nמשתמשים יכולים כעת ליצור חשבונות.'
+                    : '🔴 <b>יצירת חשבונות הושבתה.</b>\n\nמשתמשים לא יוכלו ליצור חשבונות עד שתפעיל מחדש.',
+                {
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]] }
+                }
+            );
+        }
+
         else if (data === 'admin_menu') {
             
             try {
@@ -1403,6 +1740,8 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
 ━━━━━━━━━━━━━━━━━━━━
                 `;
                 
+                const creationOnCb = isCreationEnabled();
+                const wlOnCb = isWhitelistEnabled();
                 const keyboard = {
                     inline_keyboard: [
                         [
@@ -1414,7 +1753,12 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
                             { text: '💼 חשבונות', callback_data: 'admin_accounts' }
                         ],
                         [
-                            { text: '🚫 חסומים', callback_data: 'admin_blacklist' }
+                            { text: '🚫 חסומים', callback_data: 'admin_blacklist' },
+                            { text: creationOnCb ? '🟢 יצירה: פעיל' : '🔴 יצירה: כבוי', callback_data: 'admin_toggle_creation' }
+                        ],
+                        [
+                            { text: '📋 רשימה לבנה', callback_data: 'admin_whitelist' },
+                            { text: wlOnCb ? '🟢 רשימה לבנה: פעיל' : '⚪ רשימה לבנה: כבוי', callback_data: 'admin_toggle_whitelist' }
                         ]
                     ]
                 };
@@ -1563,18 +1907,19 @@ bot.on('message', async (msg) => {
     if (msg.text && !msg.text.startsWith('/')) {
         const chatId = msg.chat.id;
         const userId = msg.from.id;
-        
-        // Block blacklisted users
-        if (isBlacklisted(chatId)) {
-            await bot.sendMessage(chatId, '🚫 אינך יכול להשתמש בבוט זה.');
-            return;
-        }
-        // Require group membership for non-admins
+        // Group gate first
         if (REQUIRED_GROUP_ID && !isAdmin(chatId) && !(await hasJoinedGroup(userId))) {
             await sendJoinRequiredMessage(chatId);
             return;
         }
-        
+        if (isBlacklisted(chatId)) {
+            await bot.sendMessage(chatId, '🚫 אינך יכול להשתמש בבוט זה.');
+            return;
+        }
+        if (isWhitelistBlocked(chatId)) {
+            await bot.sendMessage(chatId, '🔒 גישה מוגבלת. פנה למנהל הבוט לקבלת גישה.');
+            return;
+        }
         const username = msg.from.username || msg.from.first_name || 'Unknown';
         
         addChatMessage(chatId, username, false, msg.text);
