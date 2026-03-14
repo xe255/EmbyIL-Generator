@@ -164,8 +164,8 @@ async function run(statusCallback = () => { }) {
             waitUntil: 'domcontentloaded',
             timeout: 30000
         });
-        // Wait for the page to show some content (success/redirect)
-        await verifyPage.waitForTimeout(1500);
+        // Wait for the verification to fully process before closing
+        await verifyPage.waitForTimeout(3500);
         await verifyPage.close();
 
         statusCallback('[82%] 🔓 מתחבר לחשבון...');
@@ -174,10 +174,8 @@ async function run(statusCallback = () => { }) {
         await page.goto('https://client.embyiltv.io/login', { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForSelector('input[name="login"]', { timeout: 15000 });
 
-        await Promise.all([
-            fastFill('input[name="login"]', email),
-            fastFill('input[name="password"]', password),
-        ]);
+        await fastFill('input[name="login"]', email);
+        await fastFill('input[name="password"]', password);
 
         statusCallback('[86%] 🚀 שולח טופס התחברות...');
         await page.click('button[type="submit"]', { force: true });
@@ -218,11 +216,9 @@ async function run(statusCallback = () => { }) {
             statusCallback('[92%] 📋 ממלא פרטי נגן Emby...');
             const dialog = page.locator(dialogSelector);
 
-            await Promise.all([
-                fastFill('input[name="login"]', embyLogin, dialog),
-                fastFill('input[name="password"]', embyPassword, dialog),
-                fastFill('input[name="confirmPassword"]', embyPassword, dialog),
-            ]);
+            await fastFill('input[name="login"]', embyLogin, dialog);
+            await fastFill('input[name="password"]', embyPassword, dialog);
+            await fastFill('input[name="confirmPassword"]', embyPassword, dialog);
 
             await checkAllBoxes(dialog);
 
@@ -237,7 +233,7 @@ async function run(statusCallback = () => { }) {
 
             // Wait for dialog to close (success)
             try {
-                await page.waitForSelector(dialogSelector, { state: 'hidden', timeout: 10000 });
+                await page.waitForSelector(dialogSelector, { state: 'hidden', timeout: 15000 });
             } catch (e) { /* dialog may have already closed */ }
 
         } else {
@@ -255,11 +251,9 @@ async function run(statusCallback = () => { }) {
                     await page.waitForSelector(dialogSelector, { timeout: 8000 });
                     const dialog = page.locator(dialogSelector);
 
-                    await Promise.all([
-                        fastFill('input[name="login"]', embyLogin, dialog),
-                        fastFill('input[name="password"]', embyPassword, dialog),
-                        fastFill('input[name="confirmPassword"]', embyPassword, dialog),
-                    ]);
+                    await fastFill('input[name="login"]', embyLogin, dialog);
+                    await fastFill('input[name="password"]', embyPassword, dialog);
+                    await fastFill('input[name="confirmPassword"]', embyPassword, dialog);
 
                     await checkAllBoxes(dialog);
 
@@ -280,9 +274,23 @@ async function run(statusCallback = () => { }) {
             }
         }
 
-        // Short wait for backend to register the subscription
-        statusCallback('[97%] ✨ ממתין לאישור הרישום...');
-        await page.waitForTimeout(3000);
+        // Verify the subscription was actually created by checking the page
+        statusCallback('[97%] ✨ מאמת יצירת מנוי...');
+        await page.waitForTimeout(2000);
+
+        // Reload subscriptions page and check the new login appears
+        await page.goto(
+            'https://client.embyiltv.io/subscriptions?page=0&sorts=%5B%5D',
+            { waitUntil: 'domcontentloaded', timeout: 30000 }
+        );
+        await page.waitForTimeout(2000);
+
+        const pageText = await page.innerText('body').catch(() => '');
+        if (!pageText.includes(embyLogin)) {
+            // Last-ditch screenshot for debugging
+            await page.screenshot({ path: 'debug_subscription.png', fullPage: true }).catch(() => {});
+            throw new Error('המנוי לא נוצר — שם המשתמש לא נמצא בדף המנויים');
+        }
 
         statusCallback('[100%] 🎊 הכל מוכן!');
         return {
