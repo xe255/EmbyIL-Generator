@@ -5,11 +5,24 @@ const { generateNumericString, generateUsername5, generateStrongPassword } = req
 async function run(statusCallback = () => { }) {
     const browser = await chromium.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            // Reduces Cloudflare / bot wall false positives vs default headless fingerprint
+            '--disable-blink-features=AutomationControlled'
+        ]
     });
     const context = await browser.newContext({
-        // Disable images/fonts to speed up page loads
+        userAgent:
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 720 },
+        locale: 'he-IL',
         extraHTTPHeaders: { 'Accept-Language': 'he-IL,he;q=0.9,en;q=0.8' }
+    });
+
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
 
     // Block images, fonts, and media to reduce load time
@@ -76,8 +89,24 @@ async function run(statusCallback = () => { }) {
         statusCallback(`[12%] 📧 אימייל זמני: <code>${email}</code>`);
         await gotoPromise;
 
-        // Wait for the form to be ready
-        await page.waitForSelector('input[name="firstName"]', { timeout: 30000 });
+        // Cloudflare block page has no form — detect after first paint without slowing happy path
+        await page.waitForTimeout(1200);
+        const cfBlocked = await page.evaluate(() => {
+            const t = (document.body && document.body.innerText) || '';
+            return (
+                /you have been blocked|Unable to access/i.test(t) &&
+                t.includes('Cloudflare') &&
+                !document.querySelector('input[name="firstName"]')
+            );
+        });
+        if (cfBlocked) {
+            throw new Error(
+                'האתר חסם את הבוט (Cloudflare). נסה שוב מאוחר יותר או הרץ מהרשת אחרת.'
+            );
+        }
+
+        // Wait for the form to be ready (SPA + possible challenge)
+        await page.waitForSelector('input[name="firstName"]', { state: 'visible', timeout: 45000 });
 
         statusCallback('[20%] 📝 ממלא טופס הרשמה...');
 
