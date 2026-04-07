@@ -183,7 +183,7 @@ function addAccount(chatId, username, accountData) {
     const account = {
         id: Date.now(),
         createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days
+        expiresAt: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day
         accountEmail: accountData.accountEmail,
         accountPassword: accountData.accountPassword || null,
         embyUsername: accountData.embyUsername,

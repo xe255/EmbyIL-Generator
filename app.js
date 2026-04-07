@@ -90,7 +90,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // Store WebSocket clients
 let wsClients = [];
 
-// Expiry notification checker - runs every hour
+/* Expiry notification checker - disabled by user request
 setInterval(async () => {
     try {
         const expiringAccounts = getExpiringAccounts();
@@ -130,6 +130,7 @@ setInterval(async () => {
         console.error('Error in expiry checker:', error);
     }
 }, 60 * 60 * 1000); // Check every hour
+*/
 
 // Function to escape HTML special characters
 function escapeHTML(str) {
@@ -198,6 +199,25 @@ if (REQUIRED_GROUP_ID) {
     })();
 }
 
+// --- Initialize Bot Commands ---
+bot.setMyCommands([
+    { command: 'start', description: 'הפעלת הבוט ותפריט ראשי' },
+    { command: 'help', description: 'עזרה וקבלת מידע' },
+    { command: 'myaccounts', description: 'צפייה בחשבונות שלי' },
+    { command: 'getid', description: 'קבלת ה-ID שלך' }
+], { scope: { type: 'default' } });
+
+// For Admins
+ADMIN_CHAT_IDS_ARRAY.forEach(adminId => {
+    bot.setMyCommands([
+        { command: 'admin', description: 'פאנל ניהול' },
+        { command: 'stats', description: 'סטטיסטיקות' },
+        { command: 'users', description: 'ניהול משתמשים' },
+        { command: 'broadcast', description: 'שידור הודעה' },
+        { command: 'blacklist', description: 'רשימה שחורה' }
+    ], { scope: { type: 'chat', chat_id: adminId } });
+});
+
 // Notify all admins (e.g. new user / new account alerts). Silently skip if no admins or send fails.
 async function notifyAdmins(message, options = { parse_mode: 'HTML' }) {
     for (const adminId of ADMIN_CHAT_IDS_ARRAY) {
@@ -263,7 +283,7 @@ bot.onText(/\/help/, async (msg) => {
 
 <b>מגבלות:</b>
 • עד 3 חשבונות פעילים בו-זמנית
-• כל חשבון תקף ל-3 ימים
+• כל חשבון תקף ליום אחד
 • לאחר תפוגת חשבון, אפשר ליצור חדש
 
 <b>תמיכה טכנית:</b>
@@ -594,7 +614,7 @@ bot.onText(/\/broadcast/, async (msg) => {
     `;
     
     adminStates.set(chatId, {
-        action: 'broadcast'
+        action: 'broadcast_awaiting_message'
     });
     
     await bot.sendMessage(chatId, broadcastMessage, {
@@ -903,7 +923,7 @@ async function sendMainMenu(chatId) {
 
 🌟 קבל גישה מיידית לנגן Emby
 ⚡ תהליך הרשמה אוטומטי ומהיר
-🎁 תקופת ניסיון של 3 ימים בחינם
+🎁 תקופת ניסיון של יום אחד בחינם
 📺 צפייה בכל המכשירים
 🛡️ ${unlimited ? 'חשבונות ללא הגבלה' : 'עד 3 חשבונות בו-זמנית'}
 
@@ -919,7 +939,7 @@ ${remainingSlots > 0 ? `• נותרו: ${slotsDisplay} חשבונות זמינ�
     `;
     const keyboard = [];
     if (remainingSlots > 0) {
-        keyboard.push([{ text: '🚀 צור חשבון ניסיון ל-3 ימים', callback_data: 'create_account' }]);
+        keyboard.push([{ text: '🚀 צור חשבון ניסיון ליום אחד', callback_data: 'create_account' }]);
     }
     if (accountCount > 0) {
         keyboard.push([{ text: '📋 החשבונות שלי', callback_data: 'my_accounts' }]);
@@ -1176,7 +1196,7 @@ bot.on('callback_query', async (callbackQuery) => {
 <b>כתובת הנגן:</b> https://play.embyil.tv/
 
 ━━━━━━━━━━━━━━━━━━━━
-⏰ <b>תוקף החשבון:</b> 3 ימים
+⏰ <b>תוקף החשבון:</b> יום אחד
 📊 <b>חשבונות פעילים:</b> ${accountCount}/3
 ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבונות` : '⚠️ הגעת למגבלת החשבונות'}
 ━━━━━━━━━━━━━━━━━━━━
@@ -1617,7 +1637,7 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
             `;
             
             adminStates.set(chatId, {
-                action: 'broadcast',
+                action: 'broadcast_awaiting_message',
                 messageId: callbackQuery.message.message_id
             });
             
@@ -1708,6 +1728,58 @@ ${user.isBlacklisted ? '🚫 <b>סטטוס:</b> חסום\n' : '✅ <b>סטטוס
                     inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
                 }
             });
+        }
+        
+        else if (data.startsWith('admin_confirm_broadcast_')) {
+            const broadcastMsgId = data.replace('admin_confirm_broadcast_', '');
+            const users = getAllUsers().filter(u => !u.isBlacklisted);
+            
+            adminStates.delete(chatId);
+            
+            const statusMsg = await bot.sendMessage(chatId, `📢 מתחיל שידור ל-${users.length} משתמשים...`);
+            
+            let sent = 0;
+            let failed = 0;
+            
+            for (const user of users) {
+                try {
+                    const replyMarkup = (state && state.buttonLabel && state.buttonUrl) ? {
+                        inline_keyboard: [[{ text: state.buttonLabel, url: state.buttonUrl }]]
+                    } : undefined;
+
+                    await bot.copyMessage(user.chatId, chatId, broadcastMsgId, {
+                        reply_markup: replyMarkup
+                    });
+                    sent++;
+                    // Rate limiting protection
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                } catch (error) {
+                    failed++;
+                }
+            }
+            
+            await bot.editMessageText(
+                `✅ שידור הושלם!\n\n📤 נשלח: ${sent}\n❌ נכשל: ${failed}\n📊 סה"כ: ${users.length}`,
+                {
+                    chat_id: chatId,
+                    message_id: statusMsg.message_id,
+                    reply_markup: {
+                        inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
+                    }
+                }
+            );
+        }
+        
+        else if (data.startsWith('admin_add_button_')) {
+            const broadcastMsgId = data.replace('admin_add_button_', '');
+            bot.answerCallbackQuery(callbackQuery.id);
+            
+            adminStates.set(chatId, {
+                action: 'broadcast_awaiting_button_label',
+                broadcastMessageId: broadcastMsgId
+            });
+            
+            await bot.sendMessage(chatId, '📝 <b>הזן את הטקסט של הכפתור:</b>\n(לדוגמה: "הצטרף לערוץ 👀")', { parse_mode: 'HTML' });
         }
         
         else if (data === 'admin_whitelist') {
@@ -1954,7 +2026,7 @@ bot.on('message', async (msg) => {
             adminStates.delete(chatId);
             
             try {
-                await bot.sendMessage(state.targetUserId, `📢 <b>הודעה מהאדמין:</b>\n\n${message}`, {
+                await bot.sendMessage(state.targetUserId, message, {
                     parse_mode: 'HTML'
                 });
                 
@@ -1969,52 +2041,109 @@ bot.on('message', async (msg) => {
             return;
         }
         
-        else if (state.action === 'broadcast') {
-            const message = text;
-            const users = getAllUsers();
+        else if (state.action === 'broadcast_awaiting_message' || state.action === 'broadcast_confirm_with_button') {
+            const isUpdate = state.action === 'broadcast_confirm_with_button';
+            const msgId = isUpdate ? state.broadcastMessageId : msg.message_id;
             
-            adminStates.delete(chatId);
+            const keyboard = [
+                [
+                    { text: '✅ שלח לכולם', callback_data: `admin_confirm_broadcast_${msgId}` },
+                    { text: '➕ הוסף כפתור', callback_data: `admin_add_button_${msgId}` }
+                ],
+                [{ text: '❌ ביטול', callback_data: 'admin_menu' }]
+            ];
+
+            const replyMarkup = { inline_keyboard: keyboard };
             
-            const statusMsg = await bot.sendMessage(chatId, `📢 מתחיל שידור ל-${users.length} משתמשים...`);
+            // If we have a button already, show it in the preview
+            let broadcastReplyMarkup = undefined;
+            if (state.buttonLabel && state.buttonUrl) {
+                broadcastReplyMarkup = {
+                    inline_keyboard: [[{ text: state.buttonLabel, url: state.buttonUrl }]]
+                };
+            }
+
+            const previewMsg = await bot.copyMessage(chatId, chatId, msgId, {
+                reply_markup: broadcastReplyMarkup || replyMarkup
+            });
             
-            let sent = 0;
-            let failed = 0;
-            let blocked = 0;
+            adminStates.set(chatId, {
+                ...state,
+                action: 'broadcast_ready',
+                broadcastMessageId: msgId,
+                previewMessageId: previewMsg.message_id
+            });
             
-            for (const user of users) {
-                if (user.isBlacklisted) {
-                    blocked++;
-                    continue;
-                }
-                
-                try {
-                    await bot.sendMessage(user.chatId, `📢 <b>הודעה מהאדמין:</b>\n\n${message}`, {
-                        parse_mode: 'HTML'
-                    });
-                    sent++;
-                    
-                    // Add delay to avoid rate limiting
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                } catch (error) {
-                    failed++;
-                    console.error(`Failed to send to ${user.chatId}:`, error.message);
-                }
+            const helpText = state.buttonLabel ? '✅ <b>הכפתור נוסף בהצלחה!</b>\n\nבדוק את התצוגה המקדימה למעלה.' : '☝️ <b>זהו קדימון להודעה שלך.</b>\n\nניתן להוסיף כפתור קישור או לשלוח מיד.';
+            await bot.sendMessage(chatId, helpText, { 
+                parse_mode: 'HTML',
+                reply_markup: broadcastReplyMarkup ? { inline_keyboard: keyboard } : undefined
+            });
+            return;
+        }
+
+        else if (state.action === 'broadcast_awaiting_button_label') {
+            const label = (msg.text || '').trim();
+            if (!label) {
+                await bot.sendMessage(chatId, '❌ טקסט הכפתור אינו יכול להיות ריק. נסה שוב:');
+                return;
             }
             
-            await bot.editMessageText(
-                `✅ שידור הושלם!\n\n` +
-                `📤 נשלח: ${sent}\n` +
-                `❌ נכשל: ${failed}\n` +
-                `🚫 חסומים: ${blocked}\n` +
-                `📊 סה"כ: ${users.length}`,
-                {
-                    chat_id: chatId,
-                    message_id: statusMsg.message_id,
-                    reply_markup: {
-                        inline_keyboard: [[{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]]
-                    }
-                }
-            );
+            adminStates.set(chatId, {
+                ...state,
+                action: 'broadcast_awaiting_button_url',
+                buttonLabel: label
+            });
+            
+            await bot.sendMessage(chatId, `✅ הטקסט נשמר: <b>${label}</b>\n\n🌐 כעת הזן את הקישור (URL) של הכפתור:`, { parse_mode: 'HTML' });
+            return;
+        }
+
+        else if (state.action === 'broadcast_awaiting_button_url') {
+            const url = (msg.text || '').trim();
+            if (!url.startsWith('http')) {
+                await bot.sendMessage(chatId, '❌ קישור לא תקין. עליו להתחיל ב-http:// או https://. נסה שוב:');
+                return;
+            }
+            
+            adminStates.set(chatId, {
+                ...state,
+                action: 'broadcast_confirm_with_button',
+                buttonUrl: url
+            });
+            
+            // Trigger the preview again but with the button
+            await bot.sendMessage(chatId, '🔄 מעדכן תצוגה מקדימה...');
+            // We simulate a message to trigger the preview logic (or we can just call it)
+            // But it's easier to just redirect manually here or trigger a handler.
+            // Let's just run the code for broadcast_confirm_with_button manually.
+            const keyboard = [
+                [
+                    { text: '✅ שלח לכולם', callback_data: `admin_confirm_broadcast_${state.broadcastMessageId}` },
+                    { text: '🔄 שנה כפתור', callback_data: `admin_add_button_${state.broadcastMessageId}` }
+                ],
+                [{ text: '❌ ביטול', callback_data: 'admin_menu' }]
+            ];
+
+            const broadcastReplyMarkup = {
+                inline_keyboard: [[{ text: state.buttonLabel, url: url }]]
+            };
+
+            const previewMsg = await bot.copyMessage(chatId, chatId, state.broadcastMessageId, {
+                reply_markup: broadcastReplyMarkup
+            });
+
+            adminStates.set(chatId, {
+                ...state,
+                action: 'broadcast_ready',
+                buttonUrl: url,
+                previewMessageId: previewMsg.message_id
+            });
+
+            await bot.sendMessage(chatId, '✅ <b>הכפתור נוסף!</b>\n\nהאם לשלוח את ההודעה לכולם?', { 
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: keyboard }
+            });
             return;
         }
     }
