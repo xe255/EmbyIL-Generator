@@ -494,27 +494,58 @@ bot.onText(/\/users/, async (msg) => {
     const users = getAllUsers();
     
     if (users.length === 0) {
-        await bot.sendMessage(chatId, '❌ אין משתמשים במערכת.');
+        await bot.sendMessage(chatId, '❌ אין משתמשים במערכת.', {
+            reply_markup: {
+                inline_keyboard: [[{ text: '🔙 פאנל אדמין', callback_data: 'admin_menu' }]]
+            }
+        });
         return;
     }
     
-    let message = `👥 <b>רשימת משתמשים (${users.length})</b>\n\n`;
+    const pageSize = 8;
+    const pageIndex = 0;
+    const totalPages = Math.ceil(users.length / pageSize);
+    const pageUsers = users.slice(0, pageSize);
     
-    users.forEach((user, index) => {
+    let message = `👥 <b>רשימת משתמשים (${users.length})</b>\n\n`;
+    message += `<i>לחץ על משתמש לצפייה בפרטים ופעולות</i>\n`;
+    message += `\n<i>עמוד ${pageIndex + 1}/${totalPages} • פעילות אחרונה מצוינת ליד כל משתמש</i>\n`;
+    
+    const keyboard = [];
+    pageUsers.forEach((user) => {
         const displayName = user.firstName + (user.lastName ? ' ' + user.lastName : '');
-        const blacklistIcon = user.isBlacklisted ? '🚫 ' : '✅ ';
-        const accountsInfo = `(${user.activeAccounts}/${user.accountCount})`;
+        const blacklistIcon = user.isBlacklisted ? '🚫 ' : '';
+        const accountsInfo = ` (${user.activeAccounts}/${user.accountCount})`;
         const lastActive = formatLastActivity(user.lastAction);
         
-        message += `${index + 1}. ${blacklistIcon}${displayName} ${accountsInfo}\n`;
-        message += `   ID: <code>${user.chatId}</code>\n`;
-        if (user.telegramUsername) {
-            message += `   @${user.telegramUsername}\n`;
-        }
-        message += `   📅 פעילות אחרונה: ${lastActive}\n\n`;
+        keyboard.push([{
+            text: `${blacklistIcon}${displayName}${accountsInfo} • ${lastActive}`,
+            callback_data: `admin_user_${user.chatId}`
+        }]);
     });
     
-    await bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+    const navRow1 = [];
+    const navRow2 = [];
+        
+    navRow1.push({ text: `📄 ${pageIndex + 1}/${totalPages}`, callback_data: `admin_users_page_${pageIndex}` });
+    
+    if (pageIndex < totalPages - 1) {
+        navRow1.push({ text: '▶️', callback_data: `admin_users_page_${pageIndex + 1}` });
+    }
+
+    if (totalPages > 2) {
+        if (pageIndex < totalPages - 5) navRow2.push({ text: '+5 ⏩', callback_data: `admin_users_page_${Math.min(totalPages - 1, pageIndex + 5)}` });
+        if (pageIndex < totalPages - 1) navRow2.push({ text: 'סוף ⏭️', callback_data: `admin_users_page_${totalPages - 1}` });
+    }
+    
+    if (navRow1.length > 0) keyboard.push(navRow1);
+    if (navRow2.length > 0) keyboard.push(navRow2);
+    keyboard.push([{ text: '🔙 פאנל אדמין', callback_data: 'admin_menu' }]);
+    
+    await bot.sendMessage(chatId, message, {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: keyboard }
+    });
 });
 
 // Blacklist Command
@@ -1381,22 +1412,47 @@ ${remainingAccounts > 0 ? `✅ <b>נותרו:</b> ${remainingAccounts} חשבו�
             }]);
         });
         
-        const navRow = [];
+        const navRow1 = [];
+        const navRow2 = [];
+        
         if (pageIndex > 0) {
-            navRow.push({ text: '◀️ הקודם', callback_data: `admin_users_page_${pageIndex - 1}` });
+            navRow1.push({ text: '◀️', callback_data: `admin_users_page_${pageIndex - 1}` });
         }
+        
+        navRow1.push({ text: `📄 ${pageIndex + 1}/${totalPages}`, callback_data: `admin_users_page_${pageIndex}` });
+        
         if (pageIndex < totalPages - 1) {
-            navRow.push({ text: 'הבא ▶️', callback_data: `admin_users_page_${pageIndex + 1}` });
+            navRow1.push({ text: '▶️', callback_data: `admin_users_page_${pageIndex + 1}` });
         }
-        if (navRow.length > 0) {
-            keyboard.push(navRow);
+
+        if (totalPages > 2) {
+            if (pageIndex > 0) navRow2.push({ text: '⏮️ התחלה', callback_data: `admin_users_page_0` });
+            if (pageIndex > 4) navRow2.push({ text: '⏪ -5', callback_data: `admin_users_page_${Math.max(0, pageIndex - 5)}` });
+            if (pageIndex < totalPages - 5) navRow2.push({ text: '+5 ⏩', callback_data: `admin_users_page_${Math.min(totalPages - 1, pageIndex + 5)}` });
+            if (pageIndex < totalPages - 1) navRow2.push({ text: 'סוף ⏭️', callback_data: `admin_users_page_${totalPages - 1}` });
         }
+        
+        if (navRow1.length > 0) keyboard.push(navRow1);
+        if (navRow2.length > 0) keyboard.push(navRow2);
         keyboard.push([{ text: '🔙 חזרה לתפריט', callback_data: 'admin_menu' }]);
         
-            await bot.sendMessage(chatId, message, {
-                parse_mode: 'HTML',
-                reply_markup: { inline_keyboard: keyboard }
-            });
+            // Update the message instead of sending new one if possible
+            try {
+                await bot.editMessageText(message, {
+                    chat_id: chatId,
+                    message_id: callbackQuery.message.message_id,
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: keyboard }
+                });
+            } catch (e) {
+                // If text hasn't changed or other error, fallback
+                if (!e.message.includes('message is not modified')) {
+                    await bot.sendMessage(chatId, message, {
+                        parse_mode: 'HTML',
+                        reply_markup: { inline_keyboard: keyboard }
+                    });
+                }
+            }
         }
         
         else if (data.startsWith('admin_user_')) {
