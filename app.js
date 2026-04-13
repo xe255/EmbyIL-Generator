@@ -2069,17 +2069,17 @@ bot.on('message', async (msg) => {
         }
 
         else if (state.action === 'admin_search_awaiting_query') {
-            const query = (text || '').toLowerCase();
+            const query = (text || '').toLowerCase().replace(/^@/, '').trim();
             adminStates.delete(chatId);
             
             const users = getAllUsers();
-            const results = users.filter(u => 
-                String(u.chatId).includes(query) || 
-                (u.username && u.username.toLowerCase().includes(query)) ||
-                (u.firstName && u.firstName.toLowerCase().includes(query)) ||
-                (u.lastName && u.lastName.toLowerCase().includes(query)) ||
-                (u.telegramUsername && u.telegramUsername.toLowerCase().includes(query))
-            );
+            const results = users.filter(u => {
+                const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase();
+                return String(u.chatId).includes(query) || 
+                       (u.username && u.username.toLowerCase().includes(query)) ||
+                       fullName.includes(query) ||
+                       (u.telegramUsername && u.telegramUsername.toLowerCase().includes(query));
+            });
 
             if (results.length === 0) {
                 await bot.sendMessage(chatId, '❌ <b>לא נמצאו משתמשים מתאימים.</b>', { 
