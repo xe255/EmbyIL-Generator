@@ -99,28 +99,51 @@ function getAllChats() {
     // Get all unique users from logs
     const userMap = new Map();
     data.logs.forEach(log => {
-        if (log.chatId && log.username && log.username !== 'ADMIN') {
-            if (!userMap.has(log.chatId)) {
-                // Use userInfo.username if available, otherwise use the username field (which is often the Telegram username)
-                let telegramUsername = log.userInfo?.username || null;
+        if (!log.chatId) return;
+        
+        // Track last action for everyone regardless of identity
+        if (!userMap.has(log.chatId)) {
+            userMap.set(log.chatId, {
+                username: 'Unknown',
+                lastAction: log.timestamp,
+                action: log.action,
+                userInfo: null,
+                telegramUsername: null
+            });
+        } else {
+            // Newest logs are first in array, so we only update if this log is "newer" 
+            // than what we have (though normally unshift ensures newest is visit first)
+            const existingTime = new Date(userMap.get(log.chatId).lastAction).getTime();
+            const logTime = new Date(log.timestamp).getTime();
+            if (logTime > existingTime) {
+                userMap.get(log.chatId).lastAction = log.timestamp;
+                userMap.get(log.chatId).action = log.action;
+            }
+        }
+
+        // Only update identity from non-ADMIN logs
+        if (log.username && log.username !== 'ADMIN') {
+            const userData = userMap.get(log.chatId);
+            
+            // If we don't have a good username yet, or this log has userInfo, update it
+            if (userData.username === 'Unknown' || log.userInfo) {
+                if (log.username !== 'Missing') {
+                    userData.username = log.username;
+                }
                 
-                // If no userInfo but username exists and looks like a valid Telegram username
-                // (lowercase, no spaces, not "Missing" or generic names)
-                if (!telegramUsername && log.username && 
+                if (log.userInfo) {
+                    userData.userInfo = log.userInfo;
+                    userData.telegramUsername = log.userInfo.username || null;
+                }
+                
+                // Fallback username if needed
+                if (!userData.telegramUsername && log.username && 
                     log.username !== 'Missing' && 
                     log.username !== 'Unknown' &&
                     !log.username.includes(' ') &&
                     log.username.length >= 5) {
-                    telegramUsername = log.username;
+                    userData.telegramUsername = log.username;
                 }
-                
-                userMap.set(log.chatId, {
-                    username: log.username,
-                    lastAction: log.timestamp,
-                    action: log.action,
-                    userInfo: log.userInfo || null,
-                    telegramUsername: telegramUsername
-                });
             }
         }
     });
@@ -137,9 +160,15 @@ function getAllChats() {
                 telegramUsername: userData.telegramUsername
             };
         } else {
-            // Update username if needed
-            data.chats[chatId].username = userData.username;
+            // Update username if it was unknown/missing
+            if (data.chats[chatId].username === 'Unknown' || data.chats[chatId].username === 'Missing') {
+                data.chats[chatId].username = userData.username;
+            }
+            
+            // Always update last action
             data.chats[chatId].lastAction = userData.lastAction;
+            
+            // Update other info if we found better data in logs
             if (userData.telegramUsername) {
                 data.chats[chatId].telegramUsername = userData.telegramUsername;
             }
@@ -404,30 +433,49 @@ function getAllUsers() {
     const data = getLogs();
     const usersMap = new Map();
     
+    // First pass: collect lastAction and identify all users
     data.logs.forEach(log => {
-        if (log.chatId && log.username) {
-            if (!usersMap.has(log.chatId)) {
-                const accounts = getUserAccounts(log.chatId);
-                usersMap.set(log.chatId, {
-                    chatId: log.chatId,
-                    username: log.username,
-                    firstName: log.userInfo?.first_name || log.username,
-                    lastName: log.userInfo?.last_name || '',
-                    telegramUsername: log.userInfo?.username || null,
-                    lastAction: log.timestamp,
-                    accountCount: accounts.length,
-                    activeAccounts: accounts.filter(a => a.active).length,
-                    isBlacklisted: isBlacklisted(log.chatId),
-                    isBroadcastExcluded: isBroadcastExcluded(log.chatId)
-                });
-            } else {
-                const existing = usersMap.get(log.chatId);
-                const newTime = new Date(log.timestamp).getTime();
-                const oldTime = new Date(existing.lastAction).getTime();
-                if (!isNaN(newTime) && (isNaN(oldTime) || newTime > oldTime)) {
-                    existing.lastAction = log.timestamp;
-                }
+        if (!log.chatId) return;
+        
+        if (!usersMap.has(log.chatId)) {
+            const accounts = getUserAccounts(log.chatId);
+            usersMap.set(log.chatId, {
+                chatId: log.chatId,
+                username: 'Unknown',
+                firstName: 'Unknown',
+                lastName: '',
+                telegramUsername: null,
+                lastAction: log.timestamp,
+                accountCount: accounts.length,
+                activeAccounts: accounts.filter(a => a.active).length,
+                isBlacklisted: isBlacklisted(log.chatId),
+                isBroadcastExcluded: isBroadcastExcluded(log.chatId)
+            });
+        } else {
+            // Update lastAction if this log is newer
+            const existingTime = new Date(usersMap.get(log.chatId).lastAction).getTime();
+            const logTime = new Date(log.timestamp).getTime();
+            if (logTime > existingTime) {
+                usersMap.get(log.chatId).lastAction = log.timestamp;
             }
+        }
+        
+        // Identity pass for each log (prefer non-ADMIN with userInfo)
+        if (log.username && log.username !== 'ADMIN') {
+            const user = usersMap.get(log.chatId);
+            if (user.username === 'Unknown' || log.userInfo) {
+                if (log.username !== 'Missing') user.username = log.username;
+                user.firstName = log.userInfo?.first_name || user.username;
+                user.lastName = log.userInfo?.last_name || '';
+                user.telegramUsername = log.userInfo?.username || user.telegramUsername;
+            }
+        }
+    });
+    
+    // If we still have 'Unknown' firstNames, try to use username
+    usersMap.forEach(user => {
+        if (user.firstName === 'Unknown' && user.username !== 'Unknown') {
+            user.firstName = user.username;
         }
     });
     

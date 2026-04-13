@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>embyIL Admin Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0a0a0c;
+            --card-bg: #16161a;
+            --primary: #8a2be2;
+            --accent: #483d8b;
+            --text: #ffffff;
+            --text-dim: #a0a0a8;
+            --success: #00ff88;
+            --error: #ff4b2b;
+            --pending: #ffd700;
+            --chat-bg: #1a1a1e;
+            --message-user: #2d2d35;
+            --message-admin: #3a2d5d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #333;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            background: linear-gradient(45deg, var(--primary), var(--success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .tab {
+            background: var(--card-bg);
+            border: 1px solid #333;
+            color: var(--text);
+            padding: 0.75rem 2rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        .tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .tab:hover {
+            opacity: 0.8;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid #222;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .stat-card h3 {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        /* Progress Section */
+        .progress-container {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid #222;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .progress-item {
+            background: var(--chat-bg);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .progress-user {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 30px;
+            background: #0a0a0c;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--success));
+            transition: width 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .progress-message {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-top: 0.5rem;
+        }
+
+        /* Chat Section */
+        .chat-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 1.5rem;
+            height: calc(100vh - 300px);
+        }
+
+        .chat-list {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid #222;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-list-header {
+            padding: 1rem;
+            background: #1e1e24;
+            border-bottom: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        #chat-list-items {
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .chat-item {
+            padding: 1rem;
+            border-bottom: 1px solid #222;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .chat-item:hover {
+            background: var(--chat-bg);
+        }
+
+        .chat-item.active {
+            background: var(--primary);
+        }
+
+        .chat-item-username {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .chat-item-preview {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-window {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid #222;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            padding: 1rem 1.5rem;
+            background: #1e1e24;
+            border-bottom: 1px solid #333;
+            border-radius: 1rem 1rem 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .telegram-btn {
+            background: linear-gradient(135deg, #0088cc, #00aced);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: 0.3s;
+        }
+
+        .telegram-btn:hover {
+            opacity: 0.8;
+            transform: translateY(-2px);
+        }
+
+        .telegram-icon {
+            font-size: 1.2rem;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .chat-message {
+            max-width: 70%;
+            padding: 0.75rem 1rem;
+            border-radius: 1rem;
+            word-wrap: break-word;
+        }
+
+        .chat-message.user {
+            background: var(--message-user);
+            align-self: flex-start;
+        }
+
+        .chat-message.admin {
+            background: var(--message-admin);
+            align-self: flex-end;
+        }
+
+        .chat-message-time {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+        }
+
+        .chat-input-container {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #333;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: #000;
+            border: 1px solid #333;
+            color: white;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            outline: none;
+        }
+
+        .chat-input:focus {
+            border-color: var(--primary);
+        }
+
+        .chat-send-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.3s;
+        }
+
+        .chat-send-btn:hover {
+            opacity: 0.8;
+        }
+
+        .empty-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-dim);
+            font-size: 1.2rem;
+        }
+
+        /* Logs Section */
+        .logs-container {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid #222;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .logs-header {
+            padding: 1rem 1.5rem;
+            background: #1e1e24;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .refresh-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        .refresh-btn:hover {
+            opacity: 0.8;
+            transform: scale(1.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: right;
+        }
+
+        th,
+        td {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #222;
+        }
+
+        th {
+            color: var(--text-dim);
+            font-weight: 400;
+            font-size: 0.9rem;
+        }
+
+        .status-pill {
+            padding: 0.25rem 0.75rem;
+            border-radius: 2rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-success {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--success);
+        }
+
+        .status-error {
+            background: rgba(255, 75, 43, 0.1);
+            color: var(--error);
+        }
+
+        .status-pending {
+            background: rgba(255, 215, 0, 0.1);
+            color: var(--pending);
+        }
+
+        .btn-action {
+            color: var(--primary);
+            cursor: pointer;
+            text-decoration: none;
+            margin-left: 10px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .btn-action:hover {
+            text-decoration: underline;
+        }
+
+        .ws-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            margin-right: 5px;
+        }
+
+        .ws-status.disconnected {
+            background: var(--error);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        tr {
+            animation: fadeIn 0.5s ease-out backwards;
+        }
+
+        /* Custom Scrollbar */
+        #chat-list-items::-webkit-scrollbar,
+        .chat-messages::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #chat-list-items::-webkit-scrollbar-track,
+        .chat-messages::-webkit-scrollbar-track {
+            background: #0a0a0c;
+        }
+
+        #chat-list-items::-webkit-scrollbar-thumb,
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 4px;
+        }
+
+        #chat-list-items::-webkit-scrollbar-thumb:hover,
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+
+        /* New Broadcast Exclusion Styles */
+        .exclusion-btn {
+            background: transparent;
+            border: 1px solid var(--text-dim);
+            color: var(--text-dim);
+            padding: 0.4rem 0.8rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: 0.3s;
+            margin-right: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .exclusion-btn.excluded {
+            border-color: var(--error);
+            color: var(--error);
+            background: rgba(255, 75, 43, 0.1);
+        }
+
+        .exclusion-btn:hover {
+            opacity: 0.8;
+        }
+
+        .chat-search-container {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #222;
+        }
+
+        .chat-search-input {
+            width: 100%;
+            background: #000;
+            border: 1px solid #333;
+            color: white;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.4rem;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        .chat-search-input:focus {
+            border-color: var(--primary);
+        }
+
+        .chat-pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background: #1e1e24;
+            border-top: 1px solid #333;
+        }
+
+        .chat-pagination button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.3rem;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .chat-pagination button:disabled {
+            background: #333;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>לוח בקרה embyIL</h1>
+        <div>
+            <span class="ws-status" id="ws-status"></span>
+            <span id="last-update">עדכון אחרון: ...</span>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab" onclick="switchTab('chat')">צ'אט עם משתמשים</button>
+        <button class="tab" onclick="switchTab('logs')">יומן פעילות</button>
+        <button class="tab" onclick="switchTab('broadcasts')">ניתוח שידורים</button>
+    </div>
+
+    <!-- Overview Tab -->
+    <div id="overview-tab" class="tab-content active">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>סה"כ חשבונות שנוצרו</h3>
+                <div class="stat-value" id="stat-total">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>משתמשים פעילים</h3>
+                <div class="stat-value" id="stat-active">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>סטטוס בוט</h3>
+                <div class="stat-value" style="color: var(--success)">LIVE</div>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-header">
+                <h2>תהליכי יצירת חשבון פעילים</h2>
+            </div>
+            <div id="progress-list"></div>
+        </div>
+    </div>
+
+    <!-- Chat Tab -->
+    <div id="chat-tab" class="tab-content">
+        <div class="chat-layout">
+            <div class="chat-list">
+                <div class="chat-list-header">
+                    <h3>משתמשים</h3>
+                </div>
+                <div class="chat-search-container">
+                    <input type="text" id="user-search" class="chat-search-input" placeholder="חיפוש משתמש..." oninput="filterUsersResetPage()">
+                </div>
+                <div id="chat-list-items"></div>
+                <div class="chat-pagination" id="chat-pagination" style="display: none;">
+                    <button id="chat-prev-page" onclick="changeChatPage(-1)">הקודם</button>
+                    <select id="chat-page-chooser" onchange="goToChatPage(this.value)" style="background: #000; color: white; border: 1px solid #333; border-radius: 0.3rem; padding: 0.2rem; outline: none; text-align: center; font-size: 0.85rem; max-width: 60px;"></select>
+                    <span id="chat-page-info" style="font-size: 0.85rem; color: var(--text-dim); display: none;"></span>
+                    <button id="chat-next-page" onclick="changeChatPage(1)">הבא</button>
+                </div>
+            </div>
+            <div class="chat-window">
+                <div class="chat-header">
+                    <h3 id="chat-current-user">בחר משתמש כדי להתחיל שיחה</h3>
+                    <div style="display: flex; align-items: center;">
+                        <button id="broadcast-exclusion-btn" class="exclusion-btn" style="display: none;" onclick="toggleBroadcastExclusion()">
+                            <span id="bex-icon">📢</span>
+                            <span id="bex-text">שידורים: פעיל</span>
+                        </button>
+                        <button id="telegram-open-btn" class="telegram-btn" style="display: none;" onclick="openInTelegram()">
+                            <span class="telegram-icon">📋</span>
+                            <span>פרטי התקשרות</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="empty-state">בחר משתמש מהרשימה</div>
+                </div>
+                <div class="chat-input-container" id="chat-input-container" style="display: none;">
+                    <input type="text" class="chat-input" id="chat-input" placeholder="הקלד הודעה...">
+                    <button class="chat-send-btn" onclick="sendChatMessage()">שלח</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div id="logs-tab" class="tab-content">
+        <div class="logs-container">
+            <div class="logs-header">
+                <h2>יומן פעילות</h2>
+                <button class="refresh-btn" onclick="fetchData()">רענן</button>
+            </div>
+            <table id="logs-table">
+                <thead>
+                    <tr>
+                        <th>זמן</th>
+                        <th>משתמש</th>
+                        <th>פעולה</th>
+                        <th>סטטוס</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-body">
+                    <!-- Data will be injected here -->
+                </tbody>
+            </table>
+        </div>
+    <!-- Broadcasts Tab -->
+    <div id="broadcasts-tab" class="tab-content">
+        <div class="logs-container">
+            <div class="logs-header">
+                <h2>ניתוח שידורים (אנליטיקה)</h2>
+                <button class="refresh-btn" onclick="fetchBroadcasts()">רענן</button>
+            </div>
+            <table id="broadcasts-table">
+                <thead>
+                    <tr>
+                        <th>זמן</th>
+                        <th>הודעה</th>
+                        <th>נשלח</th>
+                        <th>נכשל</th>
+                        <th>קליקים</th>
+                        <th>CTR</th>
+                    </tr>
+                </thead>
+                <tbody id="broadcasts-body">
+                    <!-- Data will be injected here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let currentChatId = null;
+        let allChats = {};
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            if (event) event.target.classList.add('active');
+            else {
+                // If called programmatically, find the button
+                document.querySelectorAll('.tab').forEach(btn => {
+                    if (btn.getAttribute('onclick').includes(tab)) btn.classList.add('active');
+                });
+            }
+            
+            document.getElementById(tab + '-tab').classList.add('active');
+
+            if (tab === 'chat') {
+                loadChats();
+            } else if (tab === 'broadcasts') {
+                fetchBroadcasts();
+            }
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://' + window.location.host + '/ws');
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                document.getElementById('ws-status').classList.remove('disconnected');
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                document.getElementById('ws-status').classList.add('disconnected');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e);
+                }
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'initial_data':
+                    allChats = data.chats || {};
+                    updateProgressDisplay(data.progress || {});
+                    updateChatList();
+                    break;
+                case 'progress_update':
+                    updateProgressItem(data.chatId, data.username, data.progress, data.message);
+                    break;
+                case 'account_created':
+                case 'account_failed':
+                    removeProgressItem(data.chatId);
+                    fetchData();
+                    loadChats(); // Refresh chat list
+                    break;
+                case 'user_activity':
+                    if (!allChats[data.chatId]) {
+                        allChats[data.chatId] = {
+                            username: data.username,
+                            messages: [],
+                            lastAction: data.timestamp,
+                            action: data.action,
+                            telegramUsername: data.telegramUsername
+                        };
+                    } else {
+                        allChats[data.chatId].lastAction = data.timestamp;
+                        allChats[data.chatId].action = data.action;
+                        if (data.telegramUsername) {
+                            allChats[data.chatId].telegramUsername = data.telegramUsername;
+                        }
+                    }
+                    updateChatList();
+                    break;
+                case 'new_message':
+                    if (!allChats[data.chatId]) {
+                        allChats[data.chatId] = {
+                            username: data.username,
+                            messages: [],
+                            lastAction: data.timestamp,
+                            telegramUsername: data.telegramUsername
+                        };
+                    } else if (data.telegramUsername) {
+                        allChats[data.chatId].telegramUsername = data.telegramUsername;
+                    }
+                    allChats[data.chatId].messages.push({
+                        fromAdmin: false,
+                        message: data.message,
+                        timestamp: data.timestamp
+                    });
+                    updateChatList();
+                    if (currentChatId === data.chatId) {
+                        displayChatMessages(data.chatId);
+                    }
+                    break;
+                case 'admin_message_sent':
+                    if (allChats[data.chatId]) {
+                        allChats[data.chatId].messages.push({
+                            fromAdmin: true,
+                            message: data.message,
+                            timestamp: data.timestamp
+                        });
+                        if (currentChatId === data.chatId) {
+                            displayChatMessages(data.chatId);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        function updateProgressDisplay(progressData) {
+            const list = document.getElementById('progress-list');
+            list.innerHTML = '';
+
+            const activeProgress = Object.keys(progressData);
+            if (activeProgress.length === 0) {
+                list.innerHTML = '<div class="empty-state">אין תהליכים פעילים כרגע</div>';
+                return;
+            }
+
+            activeProgress.forEach(chatId => {
+                const prog = progressData[chatId];
+                updateProgressItem(chatId, chatId, prog.progress, prog.message);
+            });
+        }
+
+        function updateProgressItem(chatId, username, progress, message) {
+            let item = document.getElementById('progress-' + chatId);
+            
+            if (!item) {
+                const list = document.getElementById('progress-list');
+                if (list.querySelector('.empty-state')) {
+                    list.innerHTML = '';
+                }
+                
+                item = document.createElement('div');
+                item.id = 'progress-' + chatId;
+                item.className = 'progress-item';
+                list.appendChild(item);
+            }
+
+            item.innerHTML = `
+                <div class="progress-user">
+                    <span>${username}</span>
+                    <span>${progress}%</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width: ${progress}%">
+                        ${progress}%
+                    </div>
+                </div>
+                <div class="progress-message">${message}</div>
+            `;
+        }
+
+        function removeProgressItem(chatId) {
+            const item = document.getElementById('progress-' + chatId);
+            if (item) {
+                item.remove();
+            }
+            
+            const list = document.getElementById('progress-list');
+            if (list.children.length === 0) {
+                list.innerHTML = '<div class="empty-state">אין תהליכים פעילים כרגע</div>';
+            }
+        }
+
+        async function loadChats() {
+            try {
+                const response = await fetch('/api/chats');
+                allChats = await response.json();
+                filterUsersCurrentPage(); // Maintain page when polling
+            } catch (e) {
+                console.error('Error loading chats:', e);
+            }
+        }
+
+        let chatCurrentPage = 1;
+        const chatItemsPerPage = 20;
+
+        function filterUsersResetPage() {
+            chatCurrentPage = 1;
+            filterUsersCurrentPage();
+        }
+
+        function filterUsersCurrentPage() {
+            const query = document.getElementById('user-search').value.toLowerCase();
+            const filtered = {};
+            
+            Object.keys(allChats).forEach(chatId => {
+                const chat = allChats[chatId];
+                const userInfo = chat.userInfo || {};
+                const firstName = (userInfo.first_name || '').toLowerCase();
+                const lastName = (userInfo.last_name || '').toLowerCase();
+                const fullName = (firstName + ' ' + lastName).trim();
+                
+                if (chatId.includes(query) || 
+                    (chat.username && chat.username.toLowerCase().includes(query)) ||
+                    (chat.telegramUsername && chat.telegramUsername.toLowerCase().includes(query)) ||
+                    firstName.includes(query) ||
+                    lastName.includes(query) ||
+                    fullName.includes(query)) {
+                    filtered[chatId] = chat;
+                }
+            });
+            
+            updateChatList(filtered);
+        }
+
+        function filterUsers() {
+            filterUsersResetPage();
+        }
+
+        function changeChatPage(delta) {
+            chatCurrentPage += delta;
+            filterUsersCurrentPage();
+        }
+
+        function goToChatPage(pageVal) {
+            chatCurrentPage = parseInt(pageVal);
+            filterUsersCurrentPage();
+        }
+
+        function updateChatList(filteredData) {
+            const listContainer = document.getElementById('chat-list-items');
+            listContainer.innerHTML = '';
+
+            const dataToDisplay = filteredData || allChats;
+            const chatIds = Object.keys(dataToDisplay);
+
+            if (chatIds.length === 0) {
+                listContainer.innerHTML = '<div class="empty-state" style="padding: 2rem;">אין משתמשים מתאימים</div>';
+                document.getElementById('chat-pagination').style.display = 'none';
+                return;
+            }
+
+            // Sort by last activity (messages or actions)
+            chatIds.sort((a, b) => {
+                const chatA = allChats[a];
+                const chatB = allChats[b];
+                
+                const timeA = chatA.messages && chatA.messages.length > 0 
+                    ? new Date(chatA.messages[chatA.messages.length - 1].timestamp).getTime()
+                    : (chatA.lastAction ? new Date(chatA.lastAction).getTime() : 0);
+                    
+                const timeB = chatB.messages && chatB.messages.length > 0 
+                    ? new Date(chatB.messages[chatB.messages.length - 1].timestamp).getTime()
+                    : (chatB.lastAction ? new Date(chatB.lastAction).getTime() : 0);
+                
+                return timeB - timeA; // Most recent first
+            });
+
+            const totalPages = Math.ceil(chatIds.length / chatItemsPerPage);
+            if (chatCurrentPage > totalPages) chatCurrentPage = totalPages;
+            if (chatCurrentPage < 1) chatCurrentPage = 1;
+
+            if (totalPages > 1) {
+                document.getElementById('chat-pagination').style.display = 'flex';
+                document.getElementById('chat-prev-page').disabled = chatCurrentPage === 1;
+                document.getElementById('chat-next-page').disabled = chatCurrentPage === totalPages;
+                
+                const chooser = document.getElementById('chat-page-chooser');
+                chooser.innerHTML = '';
+                for (let i = 1; i <= totalPages; i++) {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.text = i;
+                    if (i === chatCurrentPage) opt.selected = true;
+                    chooser.appendChild(opt);
+                }
+            } else {
+                document.getElementById('chat-pagination').style.display = 'none';
+            }
+
+            const startIndex = (chatCurrentPage - 1) * chatItemsPerPage;
+            const endIndex = startIndex + chatItemsPerPage;
+            const paginatedIds = chatIds.slice(startIndex, endIndex);
+
+            paginatedIds.forEach(chatId => {
+                const chat = allChats[chatId];
+                let preview = '';
+                
+                if (chat.messages.length > 0) {
+                    const lastMsg = chat.messages[chat.messages.length - 1];
+                    preview = lastMsg.fromAdmin ? '✉️ ' + lastMsg.message : lastMsg.message;
+                } else if (chat.action) {
+                    const actionMap = {
+                        'start': '🚀 התחיל שימוש בבוט',
+                        'create_account': '⚙️ יצר חשבון',
+                        'admin_message': '✉️ הודעת מנהל'
+                    };
+                    preview = actionMap[chat.action] || chat.action;
+                } else {
+                    preview = 'אין הודעות';
+                }
+                
+                const telegramIcon = chat.telegramUsername ? ' <span style="color: #0088cc;">✈️</span>' : '';
+                
+                const item = document.createElement('div');
+                item.id = 'chat-item-' + chatId;
+                item.className = 'chat-item' + (currentChatId === chatId ? ' active' : '');
+                item.onclick = () => selectChat(chatId);
+                item.innerHTML = `
+                    <div class="chat-item-username">${chat.username} (${chatId})${telegramIcon}</div>
+                    <div class="chat-item-preview">${preview}</div>
+                `;
+                listContainer.appendChild(item);
+            });
+        }
+
+        function selectChat(chatId) {
+            const chat = allChats[chatId];
+            currentChatId = chatId;
+            
+            // Mark as active in the list
+            filterUsersCurrentPage();
+            
+            document.getElementById('chat-current-user').innerText = (chat.username || chatId) + ' (' + chatId + ')';
+            document.getElementById('chat-input-container').style.display = 'flex';
+            document.getElementById('telegram-open-btn').style.display = 'flex';
+            
+            // Update Exclusion Button status
+            const bexBtn = document.getElementById('broadcast-exclusion-btn');
+            bexBtn.style.display = 'flex';
+            updateExclusionBtnStatus(chat.isBroadcastExcluded);
+
+            displayChatMessages(chatId);
+        }
+
+        function updateExclusionBtnStatus(isExcluded) {
+            const btn = document.getElementById('broadcast-exclusion-btn');
+            const icon = document.getElementById('bex-icon');
+            const text = document.getElementById('bex-text');
+            
+            if (isExcluded) {
+                btn.classList.add('excluded');
+                icon.innerText = '🔇';
+                text.innerText = 'שידורים: מוחרג';
+            } else {
+                btn.classList.remove('excluded');
+                icon.innerText = '📢';
+                text.innerText = 'שידורים: פעיל';
+            }
+        }
+
+        async function toggleBroadcastExclusion() {
+            if (!currentChatId) return;
+            
+            const isExcluded = allChats[currentChatId].isBroadcastExcluded;
+            const newStatus = !isExcluded;
+            
+            try {
+                const response = await fetch('/api/toggle-broadcast-exclusion', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chatId: currentChatId, excluded: newStatus })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    allChats[currentChatId].isBroadcastExcluded = result.isBroadcastExcluded;
+                    updateExclusionBtnStatus(result.isBroadcastExcluded);
+                }
+            } catch (e) {
+                console.error('Error toggling exclusion:', e);
+            }
+        }
+
+        async function openInTelegram() {
+            if (!currentChatId) return;
+            
+            const chat = allChats[currentChatId];
+            
+            // Show options modal
+            const options = [];
+            
+            // Option 1: Try username link (if available)
+            if (chat.telegramUsername) {
+                options.push(`1. פתח לפי שם משתמש: https://t.me/${chat.telegramUsername}`);
+            }
+            
+            // Option 2: User ID link (for mobile app)
+            options.push(`2. לינק לפי ID (העתק והדבק בטלגרם):\ntg://user?id=${currentChatId}`);
+            
+            // Option 3: Copy user ID
+            options.push(`3. ID משתמש: ${currentChatId}`);
+            
+            const message = `בחר אפשרות:\n\n${options.join('\n\n')}\n\nהעתק את הלינק או ה-ID ופתח בטלגרם`;
+            
+            // Create a better modal
+            const modalHtml = `
+                <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;" id="telegram-modal">
+                    <div style="background: var(--card-bg); padding: 2rem; border-radius: 1rem; max-width: 500px; border: 1px solid #333;">
+                        <h3 style="margin-bottom: 1rem;">פתח ב-Telegram</h3>
+                        <div style="margin-bottom: 1rem; line-height: 1.8;">
+                            ${chat.telegramUsername ? `
+                                <div style="margin-bottom: 1rem;">
+                                    <strong>שם משתמש:</strong><br>
+                                    <a href="https://t.me/${chat.telegramUsername}" target="_blank" style="color: var(--primary);">https://t.me/${chat.telegramUsername}</a>
+                                </div>
+                            ` : ''}
+                            <div style="margin-bottom: 1rem;">
+                                <strong>ID משתמש:</strong><br>
+                                <code style="background: #000; padding: 0.5rem; border-radius: 0.3rem; display: inline-block;">${currentChatId}</code>
+                                <button onclick="copyToClipboard('${currentChatId}')" style="margin-right: 0.5rem; background: var(--primary); color: white; border: none; padding: 0.3rem 0.8rem; border-radius: 0.3rem; cursor: pointer;">העתק</button>
+                            </div>
+                            <div style="background: #1a1a1e; padding: 1rem; border-radius: 0.5rem; font-size: 0.9rem; color: var(--text-dim);">
+                                💡 <strong>טיפ:</strong> העתק את ה-ID, פתח טלגרם, וחפש את המשתמש לפי ID או שלח לו הודעה מהדשבורד למטה.
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('telegram-modal').remove()" style="background: var(--primary); color: white; border: none; padding: 0.7rem 1.5rem; border-radius: 0.5rem; cursor: pointer; width: 100%;">סגור</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('ID הועתק ללוח!');
+            }).catch(() => {
+                alert('שגיאה בהעתקה, נסה להעתיק ידנית');
+            });
+        }
+
+        function displayChatMessages(chatId) {
+            const messagesContainer = document.getElementById('chat-messages');
+            messagesContainer.innerHTML = '';
+
+            const chat = allChats[chatId];
+            if (!chat || chat.messages.length === 0) {
+                let emptyMessage = '<div class="empty-state">';
+                emptyMessage += '<div style="margin-bottom: 1rem;">אין הודעות בשיחה זו</div>';
+                emptyMessage += '<div style="font-size: 0.9rem; color: var(--text-dim);">התחל שיחה עם המשתמש על ידי שליחת הודעה למטה</div>';
+                emptyMessage += '</div>';
+                messagesContainer.innerHTML = emptyMessage;
+                return;
+            }
+
+            chat.messages.forEach(msg => {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = 'chat-message ' + (msg.fromAdmin ? 'admin' : 'user');
+                msgDiv.innerHTML = `
+                    <div>${msg.message}</div>
+                    <div class="chat-message-time">${new Date(msg.timestamp).toLocaleString('he-IL')}</div>
+                `;
+                messagesContainer.appendChild(msgDiv);
+            });
+
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        async function sendChatMessage() {
+            if (!currentChatId) return;
+
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            try {
+                const response = await fetch('/api/send-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chatId: currentChatId, message })
+                });
+
+                if (response.ok) {
+                    input.value = '';
+                } else {
+                    const err = await response.json();
+                    alert('שגיאה: ' + err.error);
+                }
+            } catch (e) {
+                alert('שגיאה בשליחת ההודעה');
+            }
+        }
+
+        document.getElementById('chat-input')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendChatMessage();
+            }
+        });
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+
+                document.getElementById('stat-total').innerText = data.stats.totalCreated;
+                document.getElementById('stat-active').innerText = data.stats.activeUsers;
+                document.getElementById('last-update').innerText = 'עדכון אחרון: ' + new Date().toLocaleTimeString('he-IL');
+
+                const body = document.getElementById('logs-body');
+                body.innerHTML = '';
+
+                data.logs.forEach(log => {
+                    const tr = document.createElement('tr');
+
+                    let statusClass = 'status-pending';
+                    if (log.status === 'success') statusClass = 'status-success';
+                    if (log.status === 'failed') statusClass = 'status-error';
+
+                    let actions = '';
+                    if (log.result && typeof log.result === 'object') {
+                        actions += `<a class="btn-action" href="#" onclick="alert('${JSON.stringify(log.result).replace(/'/g, "\\'")}'); return false;">פרטים</a>`;
+                    }
+
+                    tr.innerHTML = `
+                        <td>${log.timestamp}</td>
+                        <td>${log.username} (${log.chatId})</td>
+                        <td>${translateAction(log.action)} ${log.action === 'admin_message' ? ': ' + log.result : ''}</td>
+                        <td><span class="status-pill ${statusClass}">${log.status}</span></td>
+                        <td>${actions}</td>
+                    `;
+                    body.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('Error fetching logs:', e);
+            }
+        }
+
+        function translateAction(action) {
+            const map = {
+                'start': 'התחלה',
+                'create_account': 'יצירת חשבון',
+                'admin_message': 'הודעת מנהל'
+            };
+            return map[action] || action;
+        }
+
+        async function fetchBroadcasts() {
+            try {
+                const response = await fetch('/api/broadcasts');
+                const broadcasts = await response.json();
+
+                const body = document.getElementById('broadcasts-body');
+                body.innerHTML = '';
+
+                if (broadcasts.length === 0) {
+                    body.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-dim);">אין נתוני שידורים עדיין</td></tr>';
+                    return;
+                }
+
+                broadcasts.forEach(b => {
+                    const tr = document.createElement('tr');
+                    const ctr = b.sentCount > 0 ? ((b.clickCount / b.sentCount) * 100).toFixed(1) : 0;
+                    
+                    tr.innerHTML = `
+                        <td>${new Date(b.timestamp).toLocaleString('he-IL')}</td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${b.messagePreview || 'ללא כותרת'}
+                            ${b.buttonLabel ? `<br><small style="color: var(--primary)">🔘 ${b.buttonLabel}</small>` : ''}
+                        </td>
+                        <td>${b.sentCount}</td>
+                        <td><span style="color: var(--error)">${b.failedCount}</span></td>
+                        <td><span style="color: #00ff88; font-weight: bold;">${b.clickCount}</span></td>
+                        <td><span class="status-pill status-success">${ctr}%</span></td>
+                    `;
+                    body.appendChild(tr);
+                });
+            } catch (e) {
+                console.error('Error fetching broadcasts:', e);
+            }
+        }
+
+        // Initialize
+        connectWebSocket();
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+
+</html>

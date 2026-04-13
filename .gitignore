@@ -59,4 +59,3 @@ test*.js
 diag*.js
 step*.png
 processes.txt
-*.html
