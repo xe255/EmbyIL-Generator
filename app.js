@@ -59,6 +59,11 @@ const {
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const port = process.env.PORT || 3000;
 const PUBLIC_URL = process.env.PUBLIC_URL || '';
+const KEEP_ALIVE_SELF_PING = /^1|true|yes|on$/i.test(String(process.env.KEEP_ALIVE_SELF_PING || '').trim());
+const KEEP_ALIVE_INTERVAL_MS = Math.max(
+    60_000,
+    parseInt(process.env.KEEP_ALIVE_INTERVAL_MS || '600000', 10) || 600_000
+);
 
 // Validate required environment variables
 if (!token) {
@@ -2443,6 +2448,11 @@ server.on('upgrade', (request, socket, head) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Lightweight endpoint for uptime monitors and Render keep-alive (self-ping via PUBLIC_URL)
+app.get('/health', (req, res) => {
+    res.type('text/plain').send('ok');
+});
+
 // Analytics Redirect Route
 app.get('/r/:id', (req, res) => {
     const id = req.params.id;
@@ -2554,6 +2564,27 @@ app.post('/api/toggle-broadcast-exclusion', (req, res) => {
     res.json({ success: true, isBroadcastExcluded: isBroadcastExcluded(chatId) });
 });
 
+function startKeepAliveSelfPing() {
+    if (!KEEP_ALIVE_SELF_PING) return;
+    const base = PUBLIC_URL.replace(/\/$/, '');
+    if (!base) {
+        console.warn('KEEP_ALIVE_SELF_PING is enabled but PUBLIC_URL is empty; self-ping disabled');
+        return;
+    }
+    const url = `${base}/health`;
+    const ping = () => {
+        fetch(url, { method: 'GET', headers: { Accept: 'text/plain' } })
+            .then((r) => {
+                if (!r.ok) console.warn(`Keep-alive ping: HTTP ${r.status} ${url}`);
+            })
+            .catch((e) => console.warn('Keep-alive ping failed:', e.message));
+    };
+    ping();
+    setInterval(ping, KEEP_ALIVE_INTERVAL_MS);
+    console.log(`Keep-alive: self-ping every ${KEEP_ALIVE_INTERVAL_MS / 1000}s → ${url}`);
+}
+
 server.listen(port, () => {
     console.log(`Listening on port ${port}`);
+    startKeepAliveSelfPing();
 });
