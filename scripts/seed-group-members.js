@@ -96,20 +96,23 @@ async function main() {
         search: ''
     });
 
-    const plain = [];
+    const byId = new Map();
     for (const u of users) {
         const row = toPlainUser(u);
-        if (!row.bot && row.id) plain.push(row);
+        if (!row.bot && row.id) byId.set(row.id, row);
     }
+    const plain = Array.from(byId.values());
 
-    console.error(`Found ${plain.length} non-bot members.`);
+    console.error(`Found ${plain.length} unique non-bot members (deduped by id).`);
 
     if (stdoutOnly) {
         console.log(JSON.stringify({ groupMembers: plain }, null, 2));
     } else {
         const { mergeGroupMembersFromExport } = require('../database');
-        const { merged, totalKeys } = mergeGroupMembersFromExport(plain);
-        console.error(`Wrote ${merged} rows into db.json groupMembers (total keys: ${totalKeys}).`);
+        const { inserted, updated, processed, totalKeys } = mergeGroupMembersFromExport(plain);
+        console.error(
+            `Merged into groupMembers: ${processed} from scrape (${inserted} new, ${updated} updated), ${totalKeys} total keys. Supabase sync queued.`
+        );
     }
 
     await client.disconnect();

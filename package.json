@@ -8,6 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "seed:group-members": "node scripts/seed-group-members.js",
     "seed:group-members:stdout": "node scripts/seed-group-members.js --stdout-only",
+    "scrape:group-once": "node scripts/seed-group-members.js",
     "backfill:supabase": "node scripts/backfill-supabase-users.js"
   },
   "keywords": [],

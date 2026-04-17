@@ -1011,30 +1011,45 @@ function removeGroupMember(chatId) {
     }
 }
 
-/** Bulk seed groupMembers (e.g. from scripts/seed-group-members.js). Skips bots. */
+/** Bulk seed groupMembers (e.g. from scripts/seed-group-members.js). Skips bots, dedupes by id, upserts without duplicate keys. */
 function mergeGroupMembersFromExport(userList) {
     const data = readDbSafe();
     ensureDbShape(data);
     if (!data.groupMembers) data.groupMembers = {};
     const now = new Date().toISOString();
-    let added = 0;
+    let inserted = 0;
+    let updated = 0;
+    const seen = new Set();
+
     for (const u of userList) {
-        if (!u || u.bot) continue;
-        const id = String(u.id);
+        if (!u || u.bot || u.id == null) continue;
+        const id = String(typeof u.id === 'bigint' ? Number(u.id) : u.id);
+        if (!/^\d+$/.test(id) || seen.has(id)) continue;
+        seen.add(id);
+
+        const prev = data.groupMembers[id] || {};
+        const hadKey = Object.prototype.hasOwnProperty.call(data.groupMembers, id);
         data.groupMembers[id] = {
-            username: u.username != null ? u.username : null,
-            firstName: u.firstName != null ? u.firstName : null,
-            lastName: u.lastName != null ? u.lastName : null,
+            username: u.username != null ? u.username : prev.username ?? null,
+            firstName: u.firstName != null ? u.firstName : prev.firstName ?? null,
+            lastName: u.lastName != null ? u.lastName : prev.lastName ?? null,
             updatedAt: now
         };
-        added++;
+        if (hadKey) updated++;
+        else inserted++;
     }
+
     persistDb(data);
     try {
         const { scheduleBulkUpsertFromGroupMembers } = require('./supabaseSync');
         scheduleBulkUpsertFromGroupMembers(data.groupMembers, 'seed_export');
     } catch (_) { /* optional */ }
-    return { merged: added, totalKeys: Object.keys(data.groupMembers).length };
+    return {
+        inserted,
+        updated,
+        processed: seen.size,
+        totalKeys: Object.keys(data.groupMembers).length
+    };
 }
 
 /**
