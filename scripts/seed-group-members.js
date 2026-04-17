@@ -60,14 +60,19 @@ function extractInviteHashFromEnv() {
     return '';
 }
 
-async function ensureJoinedViaInvite(client, hash) {
-    if (!hash) return;
+/**
+ * Resolve the real Channel/Chat TL object (with access_hash). That is required for getParticipants.
+ * client.getEntity(-100…) often uses access_hash 0 → channels.GetChannels → CHANNEL_INVALID.
+ */
+async function resolveEntityViaInviteHash(client, hash) {
     const { Api } = require('telegram/tl');
-    const checked = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+    let checked = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+
     if (checked instanceof Api.ChatInviteAlready) {
-        console.error('[seed] Invite: already a member of this chat.');
-        return;
+        console.error('[seed] Invite: already in chat — using channel from invite (correct access hash).');
+        return checked.chat;
     }
+
     if (checked instanceof Api.ChatInvite) {
         console.error('[seed] Joining group via invite link…');
         try {
@@ -75,16 +80,24 @@ async function ensureJoinedViaInvite(client, hash) {
         } catch (e) {
             const msg = [e.errorMessage, e.message].filter(Boolean).join(' ');
             if (/USER_ALREADY_PARTICIPANT|400: USER_ALREADY/i.test(msg)) {
-                console.error('[seed] Already in chat (USER_ALREADY_PARTICIPANT).');
-                return;
+                console.error('[seed] USER_ALREADY_PARTICIPANT — re-checking invite…');
+            } else {
+                throw e;
             }
-            throw e;
         }
-        console.error('[seed] Joined. Brief pause before listing members…');
         await new Promise((r) => setTimeout(r, 2000));
-        return;
+        checked = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+        if (checked instanceof Api.ChatInviteAlready) {
+            console.error('[seed] Joined — using channel from invite.');
+            return checked.chat;
+        }
+        throw new Error(
+            'After join, CheckChatInvite did not return ChatInviteAlready. Wait a minute and retry, or check the link.'
+        );
     }
+
     console.warn('[seed] Unexpected CheckChatInvite result:', checked && checked.className);
+    return null;
 }
 
 async function main() {
@@ -98,14 +111,15 @@ async function main() {
         process.env.TELEGRAM_GROUP_ID ||
         ''
     ).trim();
+    const inviteHashEarly = extractInviteHashFromEnv();
 
     if (!apiId || Number.isNaN(apiId) || !apiHash) {
         console.error('Set TELEGRAM_API_ID and TELEGRAM_API_HASH (https://my.telegram.org).');
         process.exit(1);
     }
-    if (!groupRaw) {
+    if (!groupRaw && !inviteHashEarly) {
         console.error(
-            'Set REQUIRED_GROUP_ID (or TELEGRAM_GROUP_ID / TELEGRAM_SEED_GROUP) to your supergroup (-100…) or @username.'
+            'Set REQUIRED_GROUP_INVITE (https://t.me/+…) and/or REQUIRED_GROUP_ID (-100…). For private groups, the invite link is required.'
         );
         process.exit(1);
     }
@@ -139,45 +153,56 @@ async function main() {
     }
 
     const inviteHash = extractInviteHashFromEnv();
+    let entity = null;
+
     if (inviteHash) {
         try {
-            await ensureJoinedViaInvite(client, inviteHash);
+            entity = await resolveEntityViaInviteHash(client, inviteHash);
         } catch (e) {
-            console.error('[seed] Invite join failed:', e.message || e);
-            console.error('Check that the link is valid and the account may join (not banned).');
+            console.error('[seed] Invite resolution failed:', e.message || e);
+            console.error('Check REQUIRED_GROUP_INVITE / TELEGRAM_INVITE_HASH and that this user may join.');
             throw e;
         }
     } else {
         console.error(
-            '[seed] Tip: set REQUIRED_GROUP_INVITE (or TELEGRAM_GROUP_INVITE) to your https://t.me/+… link to auto-join.'
+            '[seed] No REQUIRED_GROUP_INVITE — private supergroups usually need https://t.me/+… in .env (see .env.example).'
         );
     }
 
-    console.error('Loading dialogs (helps GramJS resolve supergroups you are in)…');
-    await client.getDialogs({ limit: 500 }).catch((err) => {
-        console.warn('[seed] getDialogs:', err.message || err);
-    });
+    if (!entity && groupRaw) {
+        console.error('[seed] Optional: loading dialogs (ignored if it errors — some accounts have stale channels)…');
+        await client.getDialogs({ limit: 200 }).catch((err) => {
+            console.warn('[seed] getDialogs:', err.message || err);
+        });
+        try {
+            entity = await client.getEntity(groupRaw);
+        } catch (e) {
+            console.error('\n[getEntity -100… failed]', e.message || e);
+            console.error(
+                'Add REQUIRED_GROUP_INVITE=https://t.me/+YourHash — resolving by id alone often returns CHANNEL_INVALID.'
+            );
+            throw e;
+        }
+    }
 
-    let entity;
-    try {
-        entity = await client.getEntity(groupRaw);
-    } catch (e) {
-        console.error('\n[getEntity failed]', e.message || e);
-        console.error('Fix checklist:');
-        console.error(
-            '  1) Join the group with THIS user account (the phone you used for GramJS), not only the bot.'
-        );
-        console.error(
-            '  2) Use the full id from the bot’s /getgroupid (e.g. -1001234567890), no typos.'
-        );
-        console.error(
-            '  3) Set REQUIRED_GROUP_INVITE=https://t.me/+… so the script can join with your user account.'
-        );
-        console.error(
-            '  4) For a public group, set TELEGRAM_SEED_GROUP=@YourGroupUsername in .env and retry.'
-        );
-        console.error('  5) Open the group in Telegram once, then run this script again.\n');
-        throw e;
+    if (!entity) {
+        console.error('[seed] Could not resolve the group. Set REQUIRED_GROUP_INVITE in .env and run again.');
+        process.exit(1);
+    }
+
+    if (groupRaw && /^-100\d+$/.test(groupRaw)) {
+        const want = groupRaw.slice(4);
+        const got =
+            entity && entity.id != null
+                ? typeof entity.id === 'bigint'
+                    ? entity.id.toString()
+                    : String(entity.id)
+                : '';
+        if (got && got !== want) {
+            console.warn(
+                `[seed] Invite channel id ${got} does not match REQUIRED_GROUP_ID suffix ${want} — wrong invite link?`
+            );
+        }
     }
 
     console.error('Fetching participants (may take a while for large groups)…');
