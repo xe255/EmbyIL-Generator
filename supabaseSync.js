@@ -67,7 +67,7 @@ async function mergeSupabaseGroupMembersIntoMemDb(memDb) {
 function rowPayload(partial) {
     const gid = requiredGroupIdNum();
     return {
-        telegram_user_id: partial.telegram_user_id,
+        telegram_user_id: Number(partial.telegram_user_id),
         username: partial.username ?? null,
         first_name: partial.first_name ?? null,
         last_name: partial.last_name ?? null,
@@ -110,11 +110,14 @@ const BULK_CHUNK = 200;
 
 async function bulkUpsertRows(rows) {
     const client = getClient();
-    if (!client || !rows.length) return;
+    if (!client) {
+        throw new Error('Supabase client not configured (check SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY)');
+    }
+    if (!rows.length) return 0;
     const gid = requiredGroupIdNum();
     const now = new Date().toISOString();
     const payloads = rows.map((r) => ({
-        telegram_user_id: r.telegram_user_id,
+        telegram_user_id: Number(r.telegram_user_id),
         username: r.username ?? null,
         first_name: r.first_name ?? null,
         last_name: r.last_name ?? null,
@@ -123,16 +126,20 @@ async function bulkUpsertRows(rows) {
         required_group_id: gid,
         updated_at: now
     }));
+    let total = 0;
     for (let i = 0; i < payloads.length; i += BULK_CHUNK) {
         const chunk = payloads.slice(i, i + BULK_CHUNK);
-        const { error } = await client.from('telegram_users').upsert(chunk, {
-            onConflict: 'telegram_user_id'
-        });
+        const { data, error } = await client
+            .from('telegram_users')
+            .upsert(chunk, { onConflict: 'telegram_user_id' })
+            .select('telegram_user_id');
         if (error) {
-            console.warn('[supabase] bulk upsert:', error.message);
-            return;
+            const detail = [error.message, error.details, error.hint].filter(Boolean).join(' | ');
+            throw new Error(`Supabase upsert failed: ${detail} (code: ${error.code || 'n/a'})`);
         }
+        total += data && data.length > 0 ? data.length : chunk.length;
     }
+    return total;
 }
 
 /** groupMembers: id string -> { username, firstName, lastName, ... } */
@@ -148,8 +155,19 @@ function scheduleBulkUpsertFromGroupMembers(groupMembersObj, source) {
     bulkUpsertRows(rows).catch((e) => console.warn('[supabase]', e.message));
 }
 
+async function countTelegramUsers() {
+    const client = getClient();
+    if (!client) return null;
+    const { count, error } = await client
+        .from('telegram_users')
+        .select('*', { count: 'exact', head: true });
+    if (error) throw new Error(error.message);
+    return count;
+}
+
 module.exports = {
     getClient,
+    countTelegramUsers,
     mergeSupabaseGroupMembersIntoMemDb,
     upsertTelegramUser,
     scheduleUpsertTelegramUser,

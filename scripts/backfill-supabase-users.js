@@ -12,7 +12,28 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
-const { bulkUpsertRows } = require('../supabaseSync');
+const { bulkUpsertRows, countTelegramUsers, getClient } = require('../supabaseSync');
+
+function requireSupabaseEnv() {
+    const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key =
+        process.env.SUPABASE_SERVICE_ROLE_KEY ||
+        process.env.SUPABASE_SECRET_KEY ||
+        process.env.SUPABASE_ANON_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    if (!url || !key) {
+        console.error(
+            'Missing Supabase env. Set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.'
+        );
+        process.exit(1);
+    }
+    let host = url;
+    try {
+        host = new URL(url).host;
+    } catch (_) { /* ignore */ }
+    console.error('Supabase target:', host, '| client:', getClient() ? 'ok' : 'null');
+}
 
 function parseArgsFiles() {
     const a = process.argv.find((x) => x.startsWith('--files='));
@@ -79,6 +100,7 @@ function ingestDbSnapshot(data, map, bl, label) {
 }
 
 async function main() {
+    requireSupabaseEnv();
     const files = parseArgsFiles();
     const map = new Map();
     for (const f of files) {
@@ -102,8 +124,17 @@ async function main() {
         console.error('Nothing to upload. Add --files= paths or restore db exports.');
         process.exit(1);
     }
-    await bulkUpsertRows(rows);
-    console.error('Done. Check Supabase Table Editor → telegram_users.');
+    const n = await bulkUpsertRows(rows);
+    console.error('Upsert batches finished; rows reported:', n);
+    const cnt = await countTelegramUsers();
+    console.error('telegram_users row count (exact):', cnt);
+    if (cnt === 0) {
+        console.error(
+            'Still 0 rows — confirm you ran supabase/migrations/001_telegram_users.sql in THIS project, and SUPABASE_URL matches the dashboard.'
+        );
+        process.exit(2);
+    }
+    console.error('Done. Table Editor → public → telegram_users');
 }
 
 main().catch((e) => {
