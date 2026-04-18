@@ -28,6 +28,7 @@ function createEmbyFetch() {
         try {
             const pool = require('./free-proxy-pool');
             pool.configure({ canonicalOrigin: EMBY_CANONICAL_ORIGIN });
+            pool.startFreeProxyPoolLoop();
             console.log('[embyil] Emby API client: FREE_PROXY_POOL (GitHub + proxycheck + probes)');
             return (url, init) => pool.fetchThroughPool(url, init);
         } catch (e) {

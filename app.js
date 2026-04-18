@@ -2693,23 +2693,6 @@ server.listen(port, () => {
     console.log(`Listening on port ${port}`);
     startKeepAliveSelfPing();
 
-    const staticEmbyProxy = (
-        process.env.EMBY_SOCKS_PROXY ||
-        process.env.EMBY_HTTPS_PROXY ||
-        process.env.HTTPS_PROXY ||
-        ''
-    ).trim();
-    if (
-        !staticEmbyProxy &&
-        /^1|true|yes|on$/i.test(String(process.env.FREE_PROXY_POOL || '').trim())
-    ) {
-        try {
-            require('./embyil/free-proxy-pool').startFreeProxyPoolLoop();
-        } catch (e) {
-            console.warn('[proxy-pool] failed to start:', e.message);
-        }
-    }
-
     const supabaseMergeMs = parseInt(process.env.SUPABASE_MERGE_INTERVAL_MS || '3600000', 10);
     if (supabaseMergeMs > 0) {
         setInterval(() => {

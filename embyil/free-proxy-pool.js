@@ -2,8 +2,9 @@
 
 /**
  * Optional free HTTP proxy pool: GitHub list → proxycheck.io reputation → live probe to Emby origin.
- * Refreshes on a fixed timer only (default hourly) — user traffic does not drive list/probe work.
- * Per-request: pick best untried proxy (successes + latency), evict on failure, rotate until success or direct fallback.
+ * Refreshes on a fixed timer (default hourly) + once at process start via embyil/index.js.
+ * If the pool is empty (cold start), the first Emby request awaits one refresh so we avoid instant direct→Cloudflare.
+ * Per-request: pick best untried proxy; evict on TLS errors or Cloudflare HTML (403/503/429); then rotate or direct fallback.
  * High risk: public proxies may inspect TLS traffic. Enable only with FREE_PROXY_POOL=1 and eyes open.
  */
 
@@ -236,6 +237,20 @@ async function refreshPool() {
  * @param {Set<string>} tried
  * @returns {{ url: string, latency: number, successes?: number } | null}
  */
+function looksLikeCloudflareChallenge(text) {
+    if (typeof text !== 'string' || text.length < 120) return false;
+    const h = text.slice(0, 12000).toLowerCase();
+    return (
+        h.includes('just a moment') ||
+        h.includes('_cf_chl_opt') ||
+        h.includes('challenge-platform') ||
+        h.includes('/cdn-cgi/challenge') ||
+        h.includes('cf-browser-verification') ||
+        h.includes('cf-chl-bypass') ||
+        (h.includes('<!doctype html') && h.includes('cloudflare'))
+    );
+}
+
 function pickNextProxy(tried) {
     const candidates = pool.filter((p) => p && p.url && !tried.has(p.url));
     if (candidates.length === 0) return null;
@@ -254,9 +269,9 @@ function pickNextProxy(tried) {
  */
 async function fetchThroughPool(url, init) {
     if (pool.length === 0) {
-        scheduleRefresh();
+        await scheduleRefresh();
     }
-    const maxTries = Math.min(12, Math.max(2, pool.length + 3));
+    const maxTries = Math.min(16, Math.max(2, pool.length + 6));
     const tried = new Set();
     for (let t = 0; t < maxTries; t++) {
         if (pool.length === 0) break;
@@ -266,6 +281,13 @@ async function fetchThroughPool(url, init) {
         try {
             const dispatcher = new ProxyAgent(entry.url);
             const res = await undiciFetch(url, { ...init, dispatcher });
+            if (res.status === 403 || res.status === 503 || res.status === 429) {
+                const snippet = await res.clone().text();
+                if (looksLikeCloudflareChallenge(snippet)) {
+                    pool = pool.filter((p) => p.url !== entry.url);
+                    continue;
+                }
+            }
             const i = pool.findIndex((p) => p.url === entry.url);
             if (i >= 0) pool[i].successes = (pool[i].successes || 0) + 1;
             return res;
