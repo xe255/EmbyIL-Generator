@@ -24,6 +24,25 @@ let canonicalOrigin = (process.env.EMBY_API_ORIGIN || 'https://emby.embyiltv.io'
 let pool = [];
 let rr = 0;
 let loopStarted = false;
+/** @type {Promise<void> | null} */
+let refreshInFlight = null;
+let lastDirectFallbackLog = 0;
+
+function directFallbackWhenEmpty() {
+    const raw = String(process.env.FREE_PROXY_FALLBACK_DIRECT ?? '1').trim();
+    return !/^0|false|no|off$/i.test(raw);
+}
+
+function scheduleRefresh() {
+    if (!refreshInFlight) {
+        refreshInFlight = refreshPool()
+            .catch(() => {})
+            .finally(() => {
+                refreshInFlight = null;
+            });
+    }
+    return refreshInFlight;
+}
 
 function configure(opts) {
     if (opts && opts.canonicalOrigin) {
@@ -213,14 +232,26 @@ async function refreshPool() {
  * @param {import('undici').RequestInit} init
  */
 async function fetchThroughPool(url, init) {
-    const maxTries = Math.min(5, Math.max(2, pool.length + 1));
+    if (pool.length === 0) {
+        await scheduleRefresh();
+    }
+    const maxTries = Math.min(5, Math.max(2, Math.max(pool.length, 1) + 1));
     const tried = new Set();
     for (let t = 0; t < maxTries; t++) {
         if (pool.length === 0) {
-            if (/^1|true|yes|on$/i.test(String(process.env.FREE_PROXY_FALLBACK_DIRECT || '').trim())) {
+            if (directFallbackWhenEmpty()) {
+                const now = Date.now();
+                if (now - lastDirectFallbackLog > 60_000) {
+                    lastDirectFallbackLog = now;
+                    console.warn(
+                        '[proxy-pool] pool empty after refresh — using direct fetch (disable with FREE_PROXY_FALLBACK_DIRECT=0)'
+                    );
+                }
                 return undiciFetch(url, init);
             }
-            throw new Error('free-proxy-pool: no working proxies (pool empty — wait for refresh or set FREE_PROXY_FALLBACK_DIRECT=1)');
+            throw new Error(
+                'free-proxy-pool: no working proxies after refresh (direct fallback disabled — unset FREE_PROXY_FALLBACK_DIRECT or set to 1)'
+            );
         }
         const entry = pool[rr % pool.length];
         rr++;
@@ -244,9 +275,9 @@ function getPoolSize() {
 function startFreeProxyPoolLoop() {
     if (loopStarted) return;
     loopStarted = true;
-    refreshPool().catch(() => {});
+    scheduleRefresh();
     setInterval(() => {
-        refreshPool().catch(() => {});
+        scheduleRefresh();
     }, REFRESH_MS);
     console.log(`[proxy-pool] loop every ${REFRESH_MS / 1000}s → ${LIST_URL.split('/').slice(-2).join('/')}`);
 }
