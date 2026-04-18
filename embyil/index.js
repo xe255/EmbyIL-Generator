@@ -1,10 +1,14 @@
 const TempMailAPI = require('./tinyhost');
 const { generateNumericString, generateUsername5, generateStrongPassword } = require('../utils');
 
-// Public site origin for signup API. Override if Cloudflare blocks your bot host: use a direct origin
-// (e.g. DNS-only hostname) or leave default and fix WAF / Bot Fight Mode for /api on this host.
-const API_ORIGIN = (process.env.EMBY_API_ORIGIN || 'https://emby.embyiltv.io').replace(/\/$/, '');
-const API_BASE = `${API_ORIGIN}/api`;
+// Canonical site (Origin / Referer). Keep the real public site even when TCP goes through a relay.
+const EMBY_CANONICAL_ORIGIN = (process.env.EMBY_API_ORIGIN || 'https://emby.embyiltv.io').replace(/\/$/, '');
+// Where HTTP actually connects (default: same host + /api). Use relay URL for free residential egress — see scripts/emby-api-relay.js
+const API_BASE = (process.env.EMBY_API_FETCH_BASE || `${EMBY_CANONICAL_ORIGIN}/api`).replace(/\/$/, '');
+const EMBY_RELAY_SECRET = (process.env.EMBY_RELAY_SECRET || '').trim();
+if (process.env.EMBY_API_FETCH_BASE) {
+    console.log(`[embyil] API fetch base: ${API_BASE} (canonical Origin: ${EMBY_CANONICAL_ORIGIN})`);
+}
 
 /** Use undici + ProxyAgent when set so Emby API traffic exits via another IP (often bypasses CF datacenter blocks). */
 const EMBY_PROXY = (process.env.EMBY_HTTPS_PROXY || process.env.HTTPS_PROXY || '').trim();
@@ -43,8 +47,8 @@ const DEFAULT_HEADERS = {
     'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
     'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    Origin: API_ORIGIN,
-    Referer: `${API_ORIGIN}/`,
+    Origin: EMBY_CANONICAL_ORIGIN,
+    Referer: `${EMBY_CANONICAL_ORIGIN}/`,
     'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
@@ -57,6 +61,7 @@ async function apiJson(method, path, { body, token } = {}) {
     const headers = { ...DEFAULT_HEADERS };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
+    if (EMBY_RELAY_SECRET) headers['X-Emby-Relay-Secret'] = EMBY_RELAY_SECRET;
     const res = await embyFetch(`${API_BASE}${path}`, {
         method,
         headers,
