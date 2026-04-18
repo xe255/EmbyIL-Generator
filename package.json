@@ -20,7 +20,9 @@
     "@supabase/supabase-js": "^2.103.3",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
+    "node-fetch": "^2.7.0",
     "node-telegram-bot-api": "^0.67.0",
+    "socks-proxy-agent": "^8.0.5",
     "undici": "^6.21.3"
   },
   "devDependencies": {

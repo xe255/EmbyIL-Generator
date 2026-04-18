@@ -10,19 +10,52 @@ if (process.env.EMBY_API_FETCH_BASE) {
     console.log(`[embyil] API fetch base: ${API_BASE} (canonical Origin: ${EMBY_CANONICAL_ORIGIN})`);
 }
 
-/** Use undici + ProxyAgent when set so Emby API traffic exits via another IP (often bypasses CF datacenter blocks). */
-const EMBY_PROXY = (process.env.EMBY_HTTPS_PROXY || process.env.HTTPS_PROXY || '').trim();
-let embyFetch = globalThis.fetch.bind(globalThis);
-if (EMBY_PROXY) {
+/**
+ * Proxied fetch for Emby API. HTTP proxies use undici; SOCKS5/4 must use socks-proxy-agent (HTTP CONNECT is different).
+ * Set socks5://user:pass@host:port in EMBY_HTTPS_PROXY or EMBY_SOCKS_PROXY.
+ */
+function createEmbyFetch() {
+    const proxy = (
+        process.env.EMBY_SOCKS_PROXY ||
+        process.env.EMBY_HTTPS_PROXY ||
+        process.env.HTTPS_PROXY ||
+        ''
+    ).trim();
+    if (!proxy) return globalThis.fetch.bind(globalThis);
+
+    const isSocks = /^socks5?:\/\//i.test(proxy) || /^socks4a?:\/\//i.test(proxy) || /^socks4:\/\//i.test(proxy);
+    if (isSocks) {
+        try {
+            const nodeFetch = require('node-fetch');
+            const { SocksProxyAgent } = require('socks-proxy-agent');
+            const agent = new SocksProxyAgent(proxy);
+            console.log('[embyil] Emby API client: SOCKS proxy → node-fetch');
+            return (url, init) =>
+                nodeFetch(url, {
+                    method: init.method || 'GET',
+                    headers: init.headers,
+                    body: init.body,
+                    agent,
+                    compress: true
+                });
+        } catch (e) {
+            console.warn('[embyil] SOCKS proxy failed to init:', e.message);
+            return globalThis.fetch.bind(globalThis);
+        }
+    }
+
     try {
         const { fetch: undiciFetch, ProxyAgent } = require('undici');
-        const dispatcher = new ProxyAgent(EMBY_PROXY);
-        embyFetch = (url, init) => undiciFetch(url, { ...init, dispatcher });
-        console.log('[embyil] Emby API HTTP client: using proxy (EMBY_HTTPS_PROXY or HTTPS_PROXY)');
+        const dispatcher = new ProxyAgent(proxy);
+        console.log('[embyil] Emby API client: HTTP proxy → undici');
+        return (url, init) => undiciFetch(url, { ...init, dispatcher });
     } catch (e) {
-        console.warn('[embyil] Proxy configured but undici failed:', e.message);
+        console.warn('[embyil] HTTP proxy (undici) failed:', e.message);
+        return globalThis.fetch.bind(globalThis);
     }
 }
+
+const embyFetch = createEmbyFetch();
 
 /** Avoid multi‑MB HTML (e.g. Cloudflare challenge) becoming Error.message and breaking Telegram (4096 cap). */
 function summarizeHttpErrorText(text, status) {
