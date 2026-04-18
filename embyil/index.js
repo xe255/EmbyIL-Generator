@@ -1,7 +1,9 @@
 const TempMailAPI = require('./tinyhost');
 const { generateNumericString, generateUsername5, generateStrongPassword } = require('../utils');
 
-const API_ORIGIN = 'https://emby.embyiltv.io';
+// Public site origin for signup API. Override if Cloudflare blocks your bot host: use a direct origin
+// (e.g. DNS-only hostname) or leave default and fix WAF / Bot Fight Mode for /api on this host.
+const API_ORIGIN = (process.env.EMBY_API_ORIGIN || 'https://emby.embyiltv.io').replace(/\/$/, '');
 const API_BASE = `${API_ORIGIN}/api`;
 
 /** Avoid multi‑MB HTML (e.g. Cloudflare challenge) becoming Error.message and breaking Telegram (4096 cap). */
