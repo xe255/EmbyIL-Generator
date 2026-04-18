@@ -262,7 +262,7 @@ async function run(statusCallback = () => {}) {
         const embyLogin = generateNumericString(6);
         const embyPassword = '1111';
 
-        statusCallback('[92%] 📋 יוצר מנוי ניסיון (API)...');
+        statusCallback('[92%] 📋 יוצר חשבון (API)...');
         await apiJson('POST', `/subscriptions/users/${userUuid}/trial`, {
             body: {
                 login: embyLogin,
@@ -272,10 +272,10 @@ async function run(statusCallback = () => {}) {
             token: accessToken
         });
 
-        statusCallback('[97%] ✨ מאמת יצירת מנוי...');
+        statusCallback('[97%] ✨ מאמת יצירת חשבון...');
         const searchData = await searchSubscriptions(accessToken);
         if (!responseContainsLogin(searchData, embyLogin)) {
-            throw new Error('המנוי לא נוצר — שם המשתמש לא נמצא בתוצאות החיפוש');
+            throw new Error('החשבון לא נוצר — שם המשתמש לא נמצא בתוצאות החיפוש');
         }
 
         statusCallback('[100%] 🎊 הכל מוכן!');
