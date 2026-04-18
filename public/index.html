@@ -1335,12 +1335,22 @@
             const r = log.result;
             if (r == null || r === '') return '—';
             if (typeof r === 'string') {
-                const t = r.length > 160 ? r.slice(0, 157) + '…' : r;
+                const t = r.length > 220 ? r.slice(0, 217) + '…' : r;
+                return escapeHtml(t);
+            }
+            if (typeof r === 'object' && r.consoleText) {
+                const t =
+                    r.consoleText.length > 220 ? r.consoleText.slice(0, 217) + '…' : r.consoleText;
+                return escapeHtml(t);
+            }
+            if (typeof r === 'object' && r.message) {
+                const line = (r.name ? r.name + ': ' : '') + r.message;
+                const t = line.length > 220 ? line.slice(0, 217) + '…' : line;
                 return escapeHtml(t);
             }
             try {
                 const s = JSON.stringify(r);
-                const t = s.length > 160 ? s.slice(0, 157) + '…' : s;
+                const t = s.length > 220 ? s.slice(0, 217) + '…' : s;
                 return escapeHtml(t);
             } catch {
                 return '—';
@@ -1380,16 +1390,28 @@
             renderLogsTable();
         }
 
-        async function copyLogJson(key) {
-            let log = null;
+        function getLogByKey(key) {
             for (let i = 0; i < activityLogsRaw.length; i++) {
-                if (logRowKey(activityLogsRaw[i], i) === key) {
-                    log = activityLogsRaw[i];
-                    break;
-                }
+                if (logRowKey(activityLogsRaw[i], i) === key) return activityLogsRaw[i];
             }
+            return null;
+        }
+
+        async function copyLogJson(key) {
+            const log = getLogByKey(key);
             if (!log) return;
             const text = JSON.stringify(log, null, 2);
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch {
+                prompt('העתק ידנית:', text);
+            }
+        }
+
+        async function copyLogConsole(key) {
+            const log = getLogByKey(key);
+            if (!log || !log.result || typeof log.result !== 'object' || !log.result.consoleText) return;
+            const text = log.result.consoleText;
             try {
                 await navigator.clipboard.writeText(text);
             } catch {
@@ -1472,9 +1494,27 @@
                 if (expandedLogKeys.has(key)) {
                     const detail = document.createElement('tr');
                     detail.className = 'log-detail-row';
-                    const pre = escapeHtml(JSON.stringify(log, null, 2));
-                    detail.innerHTML =
-                        '<td colspan="7"><pre class="log-detail-pre">' + pre + '</pre></td>';
+                    const r = log.result;
+                    let inner = '';
+                    if (r && typeof r === 'object' && r.consoleText) {
+                        inner +=
+                            '<div style="padding:0.5rem 1.25rem 0;background:#0a0a0c;border-bottom:1px solid #333">' +
+                            '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.5rem 0">' +
+                            '<span style="color:var(--error);font-size:0.85rem;font-weight:600">Server console (כמו ב-Render / node)</span>' +
+                            '<a class="btn-action" href="#" onclick="copyLogConsole(\'' +
+                            key +
+                            '\'); return false;">העתק טקסט קונסול</a>' +
+                            '</div>' +
+                            '<pre class="log-detail-pre" style="max-height:min(50vh,420px);border-top:1px solid #222;margin:0;padding-top:0.75rem">' +
+                            escapeHtml(r.consoleText) +
+                            '</pre></div>';
+                    }
+                    inner +=
+                        '<div style="padding:0.5rem 1.25rem 0;color:var(--text-dim);font-size:0.8rem">רשומת JSON מלאה</div>' +
+                        '<pre class="log-detail-pre">' +
+                        escapeHtml(JSON.stringify(log, null, 2)) +
+                        '</pre>';
+                    detail.innerHTML = '<td colspan="7">' + inner + '</td>';
                     body.appendChild(detail);
                 }
             });

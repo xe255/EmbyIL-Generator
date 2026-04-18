@@ -200,6 +200,49 @@ function clipForTelegram(str, maxLen = 3500) {
     return s.slice(0, Math.max(0, maxLen - 1)) + '…';
 }
 
+/** Persist rich error for dashboard (same info you see in server console). */
+function serializeErrorForLog(err) {
+    if (err == null) {
+        return { type: 'ErrorLog', name: 'Error', message: 'Unknown error', consoleText: 'Unknown error' };
+    }
+    if (typeof err === 'string') {
+        return { type: 'ErrorLog', name: 'Error', message: err, consoleText: err };
+    }
+    const name = err.name || 'Error';
+    const message = String(err.message != null ? err.message : err);
+    let bodySnippet = '';
+    if (err.body !== undefined) {
+        if (typeof err.body === 'string') bodySnippet = err.body;
+        else {
+            try {
+                bodySnippet = JSON.stringify(err.body, null, 2);
+            } catch {
+                bodySnippet = String(err.body);
+            }
+        }
+    }
+    const MAX_BODY = 12000;
+    if (bodySnippet.length > MAX_BODY) {
+        bodySnippet = bodySnippet.slice(0, MAX_BODY) + '\n… [truncated for db size]';
+    }
+    const stack = err.stack ? String(err.stack) : '';
+    const parts = [];
+    if (err.status != null) parts.push(`HTTP ${err.status}`);
+    parts.push(`${name}: ${message}`);
+    if (bodySnippet) parts.push(`--- response body ---\n${bodySnippet}`);
+    if (stack) parts.push(`--- stack ---\n${stack}`);
+    const consoleText = parts.join('\n\n');
+    return {
+        type: 'ErrorLog',
+        name,
+        message,
+        status: err.status,
+        body: bodySnippet || undefined,
+        stack: stack || undefined,
+        consoleText
+    };
+}
+
 // Helper to broadcast to all WebSocket clients
 function broadcastToClients(data) {
     wsClients.forEach(client => {
@@ -1271,8 +1314,9 @@ bot.on('callback_query', async (callbackQuery) => {
             }
         }
         if (lastError && !result) {
-            const failDetail = clipForTelegram(lastError.message, 2000);
-            addLog(chatId, username, 'create_account', 'failed', failDetail, userInfo);
+            const failPayload = serializeErrorForLog(lastError);
+            addLog(chatId, username, 'create_account', 'failed', failPayload, userInfo);
+            console.error('[create_account failed]', lastError);
             clearProgress(chatId);
             const userLine = escapeHTML(clipForTelegram(lastError.message, 3500));
             try {
@@ -1285,7 +1329,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 type: 'account_failed',
                 chatId: chatId,
                 username: username,
-                error: failDetail
+                error: failPayload.message
             });
         } else if (result) {
             addLog(chatId, username, 'create_account', 'success', result, userInfo);
