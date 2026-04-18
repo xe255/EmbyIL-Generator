@@ -1,7 +1,8 @@
 const TempMailAPI = require('./tinyhost');
 const { generateNumericString, generateUsername5, generateStrongPassword } = require('../utils');
 
-const API_BASE = 'https://emby.embyiltv.io/api';
+const API_ORIGIN = 'https://emby.embyiltv.io';
+const API_BASE = `${API_ORIGIN}/api`;
 
 /** Avoid multi‑MB HTML (e.g. Cloudflare challenge) becoming Error.message and breaking Telegram (4096 cap). */
 function summarizeHttpErrorText(text, status) {
@@ -22,18 +23,22 @@ function summarizeHttpErrorText(text, status) {
 }
 
 const DEFAULT_HEADERS = {
-    Accept: 'application/json',
-    'Accept-Language': 'he-IL,he;q=0.9,en;q=0.8',
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
     'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    Origin: API_ORIGIN,
+    Referer: `${API_ORIGIN}/`,
+    'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin'
 };
 
 async function apiJson(method, path, { body, token } = {}) {
-    const headers = {
-        Accept: DEFAULT_HEADERS.Accept,
-        'Accept-Language': DEFAULT_HEADERS['Accept-Language'],
-        'User-Agent': DEFAULT_HEADERS['User-Agent']
-    };
+    const headers = { ...DEFAULT_HEADERS };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}${path}`, {
