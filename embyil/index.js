@@ -90,16 +90,34 @@ const DEFAULT_HEADERS = {
     'Sec-Fetch-Site': 'same-origin'
 };
 
+function clarifyFetchError(err) {
+    const msg = err && err.message ? String(err.message) : '';
+    if (/NotAllowed/i.test(msg)) {
+        return new Error(
+            'הפרוקסי (SOCKS) דחה את החיבור — NotAllowed. אצל ספק ה-proxy: הרשאת יעד לדומיין emby.embyiltv.io (פורט 443), או רשימת IP מקור מורשים (ייתכן ש-Render חסום). נסה HTTP-proxy אחר או relay ביתי.'
+        );
+    }
+    if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|certificate|SSL/i.test(msg)) {
+        return new Error(`רשת / TLS: ${msg}`);
+    }
+    return err;
+}
+
 async function apiJson(method, path, { body, token } = {}) {
     const headers = { ...DEFAULT_HEADERS };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
     if (EMBY_RELAY_SECRET) headers['X-Emby-Relay-Secret'] = EMBY_RELAY_SECRET;
-    const res = await embyFetch(`${API_BASE}${path}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body)
-    });
+    let res;
+    try {
+        res = await embyFetch(`${API_BASE}${path}`, {
+            method,
+            headers,
+            body: body === undefined ? undefined : JSON.stringify(body)
+        });
+    } catch (e) {
+        throw clarifyFetchError(e);
+    }
     const text = await res.text();
     let data = null;
     if (text) {
