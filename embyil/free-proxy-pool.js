@@ -6,8 +6,9 @@
  * If the pool is empty (cold start), the first Emby request awaits one refresh so we avoid instant direct→Cloudflare.
  * Per-request: rotate proxies; evict on TLS errors or Cloudflare block pages (403/503/429 + headers/body).
  * Direct origin fetch is opt-in (FREE_PROXY_FALLBACK_DIRECT=1); default off when this pool is on so traffic stays on proxies.
- * Signup gate (see canCreateEmbyAccountNow): wait for the first full refresh, then keep serving
- * while the pool rotates/refreshes in the background.
+ * Signup gate (see canCreateEmbyAccountNow): block only until the first full refresh finishes; then allow
+ * signup attempts even if zero proxies passed probes (otherwise the bot dead-locks when lists are empty
+ * and direct fallback is off). Traffic still uses the pool only; failed attempts surface as fetch errors.
  * High risk: public proxies may inspect TLS traffic. Enable only with FREE_PROXY_POOL=1 and eyes open.
  */
 
@@ -59,9 +60,7 @@ function signupBypassProxyGate() {
 function canCreateEmbyAccountNow() {
     if (signupBypassProxyGate()) return true;
     if (!embyProxyPoolGateActive()) return true;
-    if (!initialRefreshCompleted) return false;
-    if (pool.length > 0) return true;
-    return directFallbackWhenEmpty();
+    return initialRefreshCompleted;
 }
 
 function getProxySignupGateStatus() {
