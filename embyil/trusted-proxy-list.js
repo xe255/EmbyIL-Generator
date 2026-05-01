@@ -2,7 +2,8 @@
 
 /**
  * Small rotating pool from env or local file (e.g. Webshare datacenter list).
- * Format per line: host:port:username:password (HTTP proxy → http://user:pass@host:port)
+ * Format per line: host:port:username:password
+ * Protocol: HTTP (undici) default, or SOCKS5 via EMBY_TRUSTED_PROXY_PROTOCOL=socks5 (node-fetch — Webshare-friendly).
  * No external list fetch / origin probes — saves bandwidth vs FREE_PROXY_POOL.
  * Sticky “prefer last good proxy” with short failover ring per request.
  */
@@ -13,6 +14,8 @@ const { fetch: undiciFetch, ProxyAgent } = require('undici');
 
 const FILE = (process.env.EMBY_PROXY_LIST_FILE || '').trim();
 const INLINE = (process.env.EMBY_PROXY_LIST_INLINE || process.env.EMBY_PROXY_LIST || '').trim();
+const TRUSTED_PROTO = (process.env.EMBY_TRUSTED_PROXY_PROTOCOL || 'http').trim().toLowerCase();
+const USE_SOCKS = TRUSTED_PROTO === 'socks5' || TRUSTED_PROTO === 'socks';
 const MAX_TRIES = Math.min(20, Math.max(1, parseInt(process.env.EMBY_PROXY_LIST_MAX_TRIES || '5', 10) || 5));
 const REQUEST_TIMEOUT_MS = Math.max(
     5_000,
@@ -42,6 +45,9 @@ function parseLine(line) {
     if (!host || !/^\d+$/.test(port) || !user) return null;
     const u = encodeURIComponent(user);
     const p = encodeURIComponent(password);
+    if (USE_SOCKS) {
+        return `socks5://${u}:${p}@${host}:${port}`;
+    }
     return `http://${u}:${p}@${host}:${port}`;
 }
 
@@ -85,7 +91,8 @@ function responseLooksCfBlocked(res, bodyText) {
         return true;
     }
     try {
-        if (res.headers && res.headers.get && res.headers.get('cf-ray')) return true;
+        const get = res.headers && (res.headers.get ? res.headers.get.bind(res.headers) : null);
+        if (get && get('cf-ray')) return true;
     } catch {
         /* ignore */
     }
@@ -109,6 +116,34 @@ function shortFetchError(e) {
 }
 
 /**
+ * @param {string} proxyUrl socks5://…
+ * @param {string} url target https URL
+ * @param {import('undici').RequestInit} init
+ */
+async function fetchViaSocksProxy(proxyUrl, url, init) {
+    const nodeFetch = require('node-fetch');
+    const { SocksProxyAgent } = require('socks-proxy-agent');
+    const agent = new SocksProxyAgent(proxyUrl);
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+    try {
+        const res = await nodeFetch(url, {
+            method: init.method || 'GET',
+            headers: init.headers,
+            body: init.body,
+            agent,
+            compress: true,
+            signal: init.signal || ac.signal
+        });
+        clearTimeout(to);
+        return res;
+    } catch (e) {
+        clearTimeout(to);
+        throw e;
+    }
+}
+
+/**
  * @param {string} url
  * @param {import('undici').RequestInit} init
  */
@@ -122,13 +157,18 @@ async function fetchThrough(url, init) {
     for (let attempt = 0; attempt < cap; attempt++) {
         const proxyUrl = pool[idx];
         try {
-            const dispatcher = new ProxyAgent(proxyUrl);
-            const res = await undiciFetch(url, {
-                ...init,
-                dispatcher,
-                signal: init.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-            });
-            if (res.status === 407) {
+            let res;
+            if (USE_SOCKS) {
+                res = await fetchViaSocksProxy(proxyUrl, url, init);
+            } else {
+                const dispatcher = new ProxyAgent(proxyUrl);
+                res = await undiciFetch(url, {
+                    ...init,
+                    dispatcher,
+                    signal: init.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+                });
+            }
+            if (!USE_SOCKS && res.status === 407) {
                 console.warn(`[trusted-proxy-list] proxy auth rejected ${proxyLabel(proxyUrl)} (HTTP 407)`);
                 idx = (idx + 1) % n;
                 preferIndex = idx;

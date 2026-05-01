@@ -29,8 +29,9 @@ function createEmbyFetch() {
             const trusted = require('./trusted-proxy-list');
             const count = trusted.loadFromDisk();
             const mt = (process.env.EMBY_PROXY_LIST_MAX_TRIES || '5').trim();
+            const proto = (process.env.EMBY_TRUSTED_PROXY_PROTOCOL || 'http').trim();
             console.log(
-                `[embyil] Emby API client: trusted proxy list (${count} endpoints, max ${mt} tries/request — low bandwidth vs FREE_PROXY_POOL)`
+                `[embyil] Emby API client: trusted proxy list (${count} endpoints, ${proto}, max ${mt} tries/request — low bandwidth vs FREE_PROXY_POOL)`
             );
             return (reqUrl, init) => trusted.fetchThrough(reqUrl, init);
         } catch (e) {
