@@ -5,6 +5,8 @@ const { generateNumericString, generateUsername5, generateStrongPassword } = req
 const EMBY_CANONICAL_ORIGIN = (process.env.EMBY_API_ORIGIN || 'https://emby.embyiltv.io').replace(/\/$/, '');
 // Where HTTP actually connects (default: same host + /api). Use relay URL for free residential egress — see scripts/emby-api-relay.js
 const API_BASE = (process.env.EMBY_API_FETCH_BASE || `${EMBY_CANONICAL_ORIGIN}/api`).replace(/\/$/, '');
+/** Explicit fetch base (usually trycloudflare / home relay). When set, proxies must not wrap this hop — see createEmbyFetch. */
+const EMBY_API_FETCH_BASE_SET = Boolean((process.env.EMBY_API_FETCH_BASE || '').trim());
 const EMBY_RELAY_SECRET = (process.env.EMBY_RELAY_SECRET || '').trim();
 if (process.env.EMBY_API_FETCH_BASE) {
     console.log(`[embyil] API fetch base: ${API_BASE} (canonical Origin: ${EMBY_CANONICAL_ORIGIN})`);
@@ -12,10 +14,21 @@ if (process.env.EMBY_API_FETCH_BASE) {
 
 /**
  * Proxied fetch for Emby API. HTTP proxies use undici; SOCKS5/4 must use socks-proxy-agent (HTTP CONNECT is different).
+ * If EMBY_API_FETCH_BASE is set (relay / alternate API host), uses direct fetch only — proxies are not applied to that hop.
  * Optional EMBY_PROXY_LIST_INLINE / EMBY_PROXY_LIST_FILE (Webshare-style host:port:user:pass lines)
  * bypasses the free pool gate like a static proxy.
  */
 function createEmbyFetch() {
+    const forceProxyWithRelay = /^1|true|yes|on$/i.test(
+        String(process.env.EMBY_FORCE_PROXY_WITH_RELAY || '').trim()
+    );
+    if (EMBY_API_FETCH_BASE_SET && !forceProxyWithRelay) {
+        console.log(
+            '[embyil] Emby API client: direct HTTPS to EMBY_API_FETCH_BASE (relay / alternate API host — trusted list & FREE_PROXY_POOL skipped). Remove EMBY_API_FETCH_BASE to use EMBY_PROXY_LIST_* again.'
+        );
+        return globalThis.fetch.bind(globalThis);
+    }
+
     const proxy = (
         process.env.EMBY_SOCKS_PROXY ||
         process.env.EMBY_HTTPS_PROXY ||
@@ -132,7 +145,7 @@ function clarifyFetchError(err) {
     const msg = err && err.message ? String(err.message) : '';
     if (/trusted-proxy-list:/i.test(msg)) {
         return new Error(
-            'פרוקסי מקובץ (Webshare וכד׳) נכשלו בכל הניסיונות לבקשה זו. בדוק את הקובץ / הרשת, או הגדל EMBY_PROXY_LIST_MAX_TRIES (מכסה רוחב פס — ברירת מחדל 5 ניסיונות לבקשה).'
+            'פרוקסי מקובץ (Webshare וכד׳) נכשלו בכל הניסיונות לבקשה זו. אם Cloudflare חוסם את כל כתובות היציאה — השתמש ב-relay ביתי: הרץ scripts/emby-api-relay.js + מנהרת trycloudflare, הגדר ב-Render את EMBY_API_FETCH_BASE והסר את רשימת הפרוקסי (אחרת המנהרה לא תופעל). אפשר גם להגדיל EMBY_PROXY_LIST_MAX_TRIES אם חלק מהכתובות עובדות.'
         );
     }
     if (/free-proxy-pool:/i.test(msg)) {
