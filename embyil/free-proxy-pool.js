@@ -66,7 +66,8 @@ function staticEmbyProxyEnv() {
     return !!(
         (process.env.EMBY_SOCKS_PROXY || '').trim() ||
         (process.env.EMBY_HTTPS_PROXY || '').trim() ||
-        (process.env.HTTPS_PROXY || '').trim()
+        (process.env.HTTPS_PROXY || '').trim() ||
+        (process.env.EMBY_PROXY_LIST_FILE || '').trim()
     );
 }
 

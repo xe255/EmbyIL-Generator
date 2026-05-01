@@ -51,6 +51,9 @@ build/
 credentials.json
 config.json
 
+# Proxy provider credential dumps (do not commit)
+Webshare*.txt
+
 # Debug and test files
 debug*.js
 debug*.png

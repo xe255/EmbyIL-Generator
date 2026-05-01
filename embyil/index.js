@@ -12,8 +12,7 @@ if (process.env.EMBY_API_FETCH_BASE) {
 
 /**
  * Proxied fetch for Emby API. HTTP proxies use undici; SOCKS5/4 must use socks-proxy-agent (HTTP CONNECT is different).
- * Set socks5://user:pass@host:port in EMBY_HTTPS_PROXY or EMBY_SOCKS_PROXY.
- * Optional FREE_PROXY_POOL=1 uses GitHub list + proxycheck + live probes (see free-proxy-pool.js).
+ * Optional EMBY_PROXY_LIST_FILE (Webshare-style host:port:user:pass lines) bypasses the free pool gate like a static proxy.
  */
 function createEmbyFetch() {
     const proxy = (
@@ -22,6 +21,21 @@ function createEmbyFetch() {
         process.env.HTTPS_PROXY ||
         ''
     ).trim();
+
+    const trustedFile = (process.env.EMBY_PROXY_LIST_FILE || '').trim();
+    if (!proxy && trustedFile) {
+        try {
+            const trusted = require('./trusted-proxy-list');
+            const count = trusted.loadFromDisk();
+            const mt = (process.env.EMBY_PROXY_LIST_MAX_TRIES || '5').trim();
+            console.log(
+                `[embyil] Emby API client: trusted proxy file (${count} endpoints, max ${mt} tries/request — low bandwidth vs FREE_PROXY_POOL)`
+            );
+            return (reqUrl, init) => trusted.fetchThrough(reqUrl, init);
+        } catch (e) {
+            console.warn('[embyil] trusted proxy file failed:', e.message);
+        }
+    }
 
     const poolOn = /^1|true|yes|on$/i.test(String(process.env.FREE_PROXY_POOL || '').trim());
     if (!proxy && poolOn) {
@@ -114,6 +128,11 @@ const DEFAULT_HEADERS = {
 
 function clarifyFetchError(err) {
     const msg = err && err.message ? String(err.message) : '';
+    if (/trusted-proxy-list:/i.test(msg)) {
+        return new Error(
+            'פרוקסי מקובץ (Webshare וכד׳) נכשלו בכל הניסיונות לבקשה זו. בדוק את הקובץ / הרשת, או הגדל EMBY_PROXY_LIST_MAX_TRIES (מכסה רוחב פס — ברירת מחדל 5 ניסיונות לבקשה).'
+        );
+    }
     if (/free-proxy-pool:/i.test(msg)) {
         return new Error(
             'כל פרוקסי ה־HTTP במאגר נכשלו או שהמאגר ריק. רשימות פרוקסי ציבוריות בדרך כלל לא מספיקות לאתרים מאובטחים. מומלץ: relay ביתי + EMBY_API_FETCH_BASE (ראה scripts/emby-api-relay.js), או EMBY_HTTPS_PROXY/ SOCKS בתשלום. אפשר גם להרחיב FREE_PROXY_LIST_URL (כמה כתובות מופרדות בפסיק) ולנסות שוב בעוד מספר דקות.'
