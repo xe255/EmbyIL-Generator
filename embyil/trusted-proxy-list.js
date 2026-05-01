@@ -14,6 +14,10 @@ const { fetch: undiciFetch, ProxyAgent } = require('undici');
 const FILE = (process.env.EMBY_PROXY_LIST_FILE || '').trim();
 const INLINE = (process.env.EMBY_PROXY_LIST_INLINE || process.env.EMBY_PROXY_LIST || '').trim();
 const MAX_TRIES = Math.min(20, Math.max(1, parseInt(process.env.EMBY_PROXY_LIST_MAX_TRIES || '5', 10) || 5));
+const REQUEST_TIMEOUT_MS = Math.max(
+    5_000,
+    parseInt(process.env.EMBY_PROXY_REQUEST_TIMEOUT_MS || '30000', 10) || 30_000
+);
 
 /** @type {string[]} */
 let pool = [];
@@ -88,6 +92,22 @@ function responseLooksCfBlocked(res, bodyText) {
     return false;
 }
 
+function proxyLabel(proxyUrl) {
+    try {
+        const u = new URL(proxyUrl);
+        return `${u.hostname}:${u.port || '80'}`;
+    } catch {
+        return 'unknown-proxy';
+    }
+}
+
+function shortFetchError(e) {
+    const cause = e && e.cause;
+    const code = (cause && cause.code) || e.code || '';
+    const msg = (cause && cause.message) || e.message || String(e);
+    return code ? `${code}: ${msg}` : msg;
+}
+
 /**
  * @param {string} url
  * @param {import('undici').RequestInit} init
@@ -103,10 +123,21 @@ async function fetchThrough(url, init) {
         const proxyUrl = pool[idx];
         try {
             const dispatcher = new ProxyAgent(proxyUrl);
-            const res = await undiciFetch(url, { ...init, dispatcher });
+            const res = await undiciFetch(url, {
+                ...init,
+                dispatcher,
+                signal: init.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+            });
+            if (res.status === 407) {
+                console.warn(`[trusted-proxy-list] proxy auth rejected ${proxyLabel(proxyUrl)} (HTTP 407)`);
+                idx = (idx + 1) % n;
+                preferIndex = idx;
+                continue;
+            }
             if (res.status === 403 || res.status === 503 || res.status === 429) {
                 const snippet = await res.clone().text();
                 if (responseLooksCfBlocked(res, snippet)) {
+                    console.warn(`[trusted-proxy-list] Cloudflare blocked ${proxyLabel(proxyUrl)} (HTTP ${res.status})`);
                     idx = (idx + 1) % n;
                     preferIndex = idx;
                     continue;
@@ -114,7 +145,8 @@ async function fetchThrough(url, init) {
             }
             preferIndex = idx;
             return res;
-        } catch {
+        } catch (e) {
+            console.warn(`[trusted-proxy-list] fetch failed via ${proxyLabel(proxyUrl)}: ${shortFetchError(e)}`);
             idx = (idx + 1) % n;
             preferIndex = idx;
         }
