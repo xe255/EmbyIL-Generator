@@ -154,6 +154,7 @@ async function fetchThrough(url, init) {
     }
     const cap = Math.min(MAX_TRIES, n);
     let idx = preferIndex % n;
+    let lastErr = '';
     for (let attempt = 0; attempt < cap; attempt++) {
         const proxyUrl = pool[idx];
         try {
@@ -169,6 +170,7 @@ async function fetchThrough(url, init) {
                 });
             }
             if (!USE_SOCKS && res.status === 407) {
+                lastErr = `HTTP 407 proxy auth ${proxyLabel(proxyUrl)}`;
                 console.warn(`[trusted-proxy-list] proxy auth rejected ${proxyLabel(proxyUrl)} (HTTP 407)`);
                 idx = (idx + 1) % n;
                 preferIndex = idx;
@@ -177,6 +179,7 @@ async function fetchThrough(url, init) {
             if (res.status === 403 || res.status === 503 || res.status === 429) {
                 const snippet = await res.clone().text();
                 if (responseLooksCfBlocked(res, snippet)) {
+                    lastErr = `Cloudflare blocked ${proxyLabel(proxyUrl)} (HTTP ${res.status})`;
                     console.warn(`[trusted-proxy-list] Cloudflare blocked ${proxyLabel(proxyUrl)} (HTTP ${res.status})`);
                     idx = (idx + 1) % n;
                     preferIndex = idx;
@@ -186,12 +189,20 @@ async function fetchThrough(url, init) {
             preferIndex = idx;
             return res;
         } catch (e) {
-            console.warn(`[trusted-proxy-list] fetch failed via ${proxyLabel(proxyUrl)}: ${shortFetchError(e)}`);
+            lastErr = shortFetchError(e);
+            console.warn(`[trusted-proxy-list] fetch failed via ${proxyLabel(proxyUrl)}: ${lastErr}`);
+            if (/authentication failed|not authorized|invalid credentials/i.test(lastErr)) {
+                console.warn(
+                    '[trusted-proxy-list] hint: SOCKS/HTTP auth rejected — refresh proxy list in Webshare, check user:pass lines, or try EMBY_TRUSTED_PROXY_PROTOCOL=http'
+                );
+            }
             idx = (idx + 1) % n;
             preferIndex = idx;
         }
     }
-    throw new Error('trusted-proxy-list: all attempts failed for this request');
+    throw new Error(
+        `trusted-proxy-list: all attempts failed for this request${lastErr ? ` | last: ${lastErr}` : ''}`
+    );
 }
 
 module.exports = {

@@ -144,6 +144,11 @@ const DEFAULT_HEADERS = {
 function clarifyFetchError(err) {
     const msg = err && err.message ? String(err.message) : '';
     if (/trusted-proxy-list:/i.test(msg)) {
+        if (/socks5 authentication failed|authentication failed|proxy auth rejected|407/i.test(msg)) {
+            return new Error(
+                'אימות פרוקסי נכשל (SOCKS/HTTP): עדכן את הרשימה מ-Webshare או בדוק שורות host:port:user:pass. נסה EMBY_TRUSTED_PROXY_PROTOCOL=http אם הפרוקסי הוא HTTP ולא SOCKS. אם גם אז יש רק 403 — Cloudflare חוסם יציאת דאטאסנטר; אז relay ביתי + EMBY_API_FETCH_BASE.'
+            );
+        }
         return new Error(
             'פרוקסי מקובץ (Webshare וכד׳) נכשלו בכל הניסיונות לבקשה זו. אם Cloudflare חוסם את כל כתובות היציאה — השתמש ב-relay ביתי: הרץ scripts/emby-api-relay.js + מנהרת trycloudflare, הגדר ב-Render את EMBY_API_FETCH_BASE והסר את רשימת הפרוקסי (אחרת המנהרה לא תופעל). אפשר גם להגדיל EMBY_PROXY_LIST_MAX_TRIES אם חלק מהכתובות עובדות.'
         );
