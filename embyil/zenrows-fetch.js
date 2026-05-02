@@ -22,6 +22,7 @@ function shortErr(e) {
 function buildQuery(targetUrl) {
     const apiKey = (process.env.ZENROWS_API_KEY || '').trim();
     const premium = envBool('ZENROWS_PREMIUM_PROXY', true);
+    const jsRender = envBool('ZENROWS_JS_RENDER', true);
     const country = (process.env.ZENROWS_PROXY_COUNTRY || '').trim();
     let sid = '4242';
     if (process.env.ZENROWS_SESSION_ID !== undefined) {
@@ -35,13 +36,24 @@ function buildQuery(targetUrl) {
     p.set('custom_headers', 'true');
     if (originalStatus) p.set('original_status', 'true');
     if (premium) p.set('premium_proxy', 'true');
+    if (jsRender) {
+        p.set('js_render', 'true');
+        const waitMs = parseInt(process.env.ZENROWS_WAIT_MS || '5000', 10);
+        if (!Number.isNaN(waitMs) && waitMs > 0) {
+            p.set('wait', String(waitMs));
+        }
+    }
     if (country) p.set('proxy_country', country);
     if (sid && sid !== '0') p.set('session_id', sid);
 
     return p;
 }
 
-const TIMEOUT_MS = Math.max(15_000, parseInt(process.env.ZENROWS_TIMEOUT_MS || '120000', 10) || 120_000);
+/** ZenRows headless + CF can exceed 120s; override with ZENROWS_TIMEOUT_MS */
+const TIMEOUT_MS = Math.max(
+    30_000,
+    parseInt(process.env.ZENROWS_TIMEOUT_MS || '180000', 10) || 180_000
+);
 
 /**
  * @param {string} targetUrl absolute URL (Emby API)

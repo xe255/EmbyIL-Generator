@@ -38,8 +38,12 @@ function createEmbyFetch() {
                 pv === undefined || String(pv).trim() === ''
                     ? true
                     : /^1|true|yes|on$/i.test(String(pv).trim());
+            const jr =
+                process.env.ZENROWS_JS_RENDER === undefined || String(process.env.ZENROWS_JS_RENDER).trim() === ''
+                    ? true
+                    : /^1|true|yes|on$/i.test(String(process.env.ZENROWS_JS_RENDER).trim());
             console.log(
-                `[embyil] Emby API client: ZenRows Universal API (residential: ${prem ? 'on (ZENROWS_PREMIUM_PROXY)' : 'off'})`
+                `[embyil] Emby API client: ZenRows Universal API (residential: ${prem ? 'on' : 'off'}, js_render: ${jr ? 'on' : 'off'})`
             );
             return (reqUrl, init) => zr.fetchThrough(reqUrl, init);
         } catch (e) {
