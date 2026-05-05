@@ -29,6 +29,79 @@ function createEmbyFetch() {
         return globalThis.fetch.bind(globalThis);
     }
 
+    const proxy = (
+        process.env.EMBY_SOCKS_PROXY ||
+        process.env.EMBY_HTTPS_PROXY ||
+        process.env.HTTPS_PROXY ||
+        ''
+    ).trim();
+
+    const trustedList = (process.env.EMBY_PROXY_LIST_INLINE || process.env.EMBY_PROXY_LIST || process.env.EMBY_PROXY_LIST_FILE || '').trim();
+
+    // Egress priority: explicit proxy → trusted list → public pool → ZenRows (paid API; 402 = credits/billing) → direct
+    if (proxy) {
+        const isSocks = /^socks5?:\/\//i.test(proxy) || /^socks4a?:\/\//i.test(proxy) || /^socks4:\/\//i.test(proxy);
+        if (isSocks) {
+            try {
+                const nodeFetch = require('node-fetch');
+                const { SocksProxyAgent } = require('socks-proxy-agent');
+                const agent = new SocksProxyAgent(proxy);
+                console.log('[embyil] Emby API client: SOCKS proxy → node-fetch');
+                return (url, init) =>
+                    nodeFetch(url, {
+                        method: init.method || 'GET',
+                        headers: init.headers,
+                        body: init.body,
+                        agent,
+                        compress: true
+                    });
+            } catch (e) {
+                console.warn('[embyil] SOCKS proxy failed to init:', e.message);
+                console.warn('[embyil] falling back to direct fetch (may be blocked by Cloudflare)');
+                return globalThis.fetch.bind(globalThis);
+            }
+        }
+
+        try {
+            const { fetch: undiciFetch, ProxyAgent } = require('undici');
+            const dispatcher = new ProxyAgent(proxy);
+            console.log('[embyil] Emby API client: HTTP proxy → undici');
+            return (url, init) => undiciFetch(url, { ...init, dispatcher });
+        } catch (e) {
+            console.warn('[embyil] HTTP proxy (undici) failed:', e.message);
+            console.warn('[embyil] falling back to direct fetch (may be blocked by Cloudflare)');
+            return globalThis.fetch.bind(globalThis);
+        }
+    }
+
+    if (trustedList) {
+        try {
+            const trusted = require('./trusted-proxy-list');
+            const count = trusted.loadFromDisk();
+            const mt = (process.env.EMBY_PROXY_LIST_MAX_TRIES || '5').trim();
+            const proto = (process.env.EMBY_TRUSTED_PROXY_PROTOCOL || 'http').trim();
+            console.log(
+                `[embyil] Emby API client: trusted proxy list (${count} endpoints, ${proto}, max ${mt} tries/request — low bandwidth vs FREE_PROXY_POOL)`
+            );
+            return (reqUrl, init) => trusted.fetchThrough(reqUrl, init);
+        } catch (e) {
+            console.warn('[embyil] trusted proxy list failed:', e.message);
+        }
+    }
+
+    const poolOn = /^1|true|yes|on$/i.test(String(process.env.FREE_PROXY_POOL || '').trim());
+    if (poolOn) {
+        try {
+            const pool = require('./free-proxy-pool');
+            pool.configure({ canonicalOrigin: EMBY_CANONICAL_ORIGIN });
+            pool.startFreeProxyPoolLoop();
+            console.log('[embyil] Emby API client: FREE_PROXY_POOL (GitHub + proxycheck + probes)');
+            return (url, init) => pool.fetchThroughPool(url, init);
+        } catch (e) {
+            console.warn('[embyil] free-proxy-pool failed to load:', e.message);
+        }
+    }
+
     const zenKey = (process.env.ZENROWS_API_KEY || '').trim();
     if (zenKey) {
         try {
@@ -51,81 +124,10 @@ function createEmbyFetch() {
         }
     }
 
-    const proxy = (
-        process.env.EMBY_SOCKS_PROXY ||
-        process.env.EMBY_HTTPS_PROXY ||
-        process.env.HTTPS_PROXY ||
-        ''
-    ).trim();
-
-    const trustedList = (process.env.EMBY_PROXY_LIST_INLINE || process.env.EMBY_PROXY_LIST || process.env.EMBY_PROXY_LIST_FILE || '').trim();
-    if (!proxy && trustedList) {
-        try {
-            const trusted = require('./trusted-proxy-list');
-            const count = trusted.loadFromDisk();
-            const mt = (process.env.EMBY_PROXY_LIST_MAX_TRIES || '5').trim();
-            const proto = (process.env.EMBY_TRUSTED_PROXY_PROTOCOL || 'http').trim();
-            console.log(
-                `[embyil] Emby API client: trusted proxy list (${count} endpoints, ${proto}, max ${mt} tries/request — low bandwidth vs FREE_PROXY_POOL)`
-            );
-            return (reqUrl, init) => trusted.fetchThrough(reqUrl, init);
-        } catch (e) {
-            console.warn('[embyil] trusted proxy list failed:', e.message);
-        }
-    }
-
-    const poolOn = /^1|true|yes|on$/i.test(String(process.env.FREE_PROXY_POOL || '').trim());
-    if (!proxy && poolOn) {
-        try {
-            const pool = require('./free-proxy-pool');
-            pool.configure({ canonicalOrigin: EMBY_CANONICAL_ORIGIN });
-            pool.startFreeProxyPoolLoop();
-            console.log('[embyil] Emby API client: FREE_PROXY_POOL (GitHub + proxycheck + probes)');
-            return (url, init) => pool.fetchThroughPool(url, init);
-        } catch (e) {
-            console.warn('[embyil] free-proxy-pool failed to load:', e.message);
-        }
-    }
-
-    if (!proxy) {
-        console.warn(
-            '[embyil] Emby API client: direct fetch (set FREE_PROXY_POOL=1 or EMBY_HTTPS_PROXY if Cloudflare blocks this host)'
-        );
-        return globalThis.fetch.bind(globalThis);
-    }
-
-    const isSocks = /^socks5?:\/\//i.test(proxy) || /^socks4a?:\/\//i.test(proxy) || /^socks4:\/\//i.test(proxy);
-    if (isSocks) {
-        try {
-            const nodeFetch = require('node-fetch');
-            const { SocksProxyAgent } = require('socks-proxy-agent');
-            const agent = new SocksProxyAgent(proxy);
-            console.log('[embyil] Emby API client: SOCKS proxy → node-fetch');
-            return (url, init) =>
-                nodeFetch(url, {
-                    method: init.method || 'GET',
-                    headers: init.headers,
-                    body: init.body,
-                    agent,
-                    compress: true
-                });
-        } catch (e) {
-            console.warn('[embyil] SOCKS proxy failed to init:', e.message);
-            console.warn('[embyil] falling back to direct fetch (may be blocked by Cloudflare)');
-            return globalThis.fetch.bind(globalThis);
-        }
-    }
-
-    try {
-        const { fetch: undiciFetch, ProxyAgent } = require('undici');
-        const dispatcher = new ProxyAgent(proxy);
-        console.log('[embyil] Emby API client: HTTP proxy → undici');
-        return (url, init) => undiciFetch(url, { ...init, dispatcher });
-    } catch (e) {
-        console.warn('[embyil] HTTP proxy (undici) failed:', e.message);
-        console.warn('[embyil] falling back to direct fetch (may be blocked by Cloudflare)');
-        return globalThis.fetch.bind(globalThis);
-    }
+    console.warn(
+        '[embyil] Emby API client: direct fetch (set FREE_PROXY_POOL=1, ZENROWS_API_KEY, or EMBY_HTTPS_PROXY if Cloudflare blocks this host)'
+    );
+    return globalThis.fetch.bind(globalThis);
 }
 
 const embyFetch = createEmbyFetch();

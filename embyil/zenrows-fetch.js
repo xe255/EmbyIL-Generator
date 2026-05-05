@@ -81,11 +81,13 @@ async function fetchThrough(targetUrl, init) {
             redirect: 'follow'
         });
         clearTimeout(to);
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401 || res.status === 402 || res.status === 403) {
             const snippet = await res.clone().text();
             const head = snippet.slice(0, 400).toLowerCase();
-            if (head.includes('zenrows') || head.includes('api key') || head.includes('credit')) {
-                console.warn('[zenrows-fetch] ZenRows rejected or quota issue — check dashboard / API key');
+            if (head.includes('zenrows') || head.includes('api key') || head.includes('credit') || res.status === 402) {
+                console.warn(
+                    '[zenrows-fetch] ZenRows rejected, quota, or payment required (402) — check dashboard / credits; or set FREE_PROXY_POOL=1 and unset ZenRows if using public proxies'
+                );
             }
         }
         return res;
