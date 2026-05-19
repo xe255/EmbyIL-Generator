@@ -8,6 +8,20 @@ const API_BASE = (process.env.EMBY_API_FETCH_BASE || `${EMBY_CANONICAL_ORIGIN}/a
 /** Explicit fetch base (usually trycloudflare / home relay). When set, proxies must not wrap this hop — see createEmbyFetch. */
 const EMBY_API_FETCH_BASE_SET = Boolean((process.env.EMBY_API_FETCH_BASE || '').trim());
 const EMBY_RELAY_SECRET = (process.env.EMBY_RELAY_SECRET || '').trim();
+const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
+function envEnabled(name) {
+    return /^1|true|yes|on$/i.test(String(process.env[name] || '').trim());
+}
+function hasConfiguredRenderEgress() {
+    if (!IS_RENDER) return true;
+    if (EMBY_API_FETCH_BASE_SET) return true;
+    if ((process.env.EMBY_SOCKS_PROXY || process.env.EMBY_HTTPS_PROXY || process.env.HTTPS_PROXY || '').trim()) return true;
+    if ((process.env.EMBY_PROXY_LIST_INLINE || process.env.EMBY_PROXY_LIST || process.env.EMBY_PROXY_LIST_FILE || '').trim()) return true;
+    if ((process.env.ZENROWS_API_KEY || '').trim()) return true;
+    if (envEnabled('FREE_PROXY_POOL') && envEnabled('ALLOW_RENDER_FREE_PROXY_POOL')) return true;
+    if (envEnabled('ALLOW_RENDER_DIRECT_EMBY_API')) return true;
+    return false;
+}
 if (process.env.EMBY_API_FETCH_BASE) {
     console.log(`[embyil] API fetch base: ${API_BASE} (canonical Origin: ${EMBY_CANONICAL_ORIGIN})`);
 }
@@ -89,16 +103,22 @@ function createEmbyFetch() {
         }
     }
 
-    const poolOn = /^1|true|yes|on$/i.test(String(process.env.FREE_PROXY_POOL || '').trim());
+    const poolOn = envEnabled('FREE_PROXY_POOL');
     if (poolOn) {
-        try {
-            const pool = require('./free-proxy-pool');
-            pool.configure({ canonicalOrigin: EMBY_CANONICAL_ORIGIN });
-            pool.startFreeProxyPoolLoop();
-            console.log('[embyil] Emby API client: FREE_PROXY_POOL (GitHub + proxycheck + probes)');
-            return (url, init) => pool.fetchThroughPool(url, init);
-        } catch (e) {
-            console.warn('[embyil] free-proxy-pool failed to load:', e.message);
+        if (IS_RENDER && !envEnabled('ALLOW_RENDER_FREE_PROXY_POOL')) {
+            console.warn(
+                '[embyil] FREE_PROXY_POOL ignored on Render to prevent bandwidth exhaustion. Use EMBY_API_FETCH_BASE relay, EMBY_HTTPS_PROXY, or set ALLOW_RENDER_FREE_PROXY_POOL=1 to override.'
+            );
+        } else {
+            try {
+                const pool = require('./free-proxy-pool');
+                pool.configure({ canonicalOrigin: EMBY_CANONICAL_ORIGIN });
+                pool.startFreeProxyPoolLoop();
+                console.log('[embyil] Emby API client: FREE_PROXY_POOL (GitHub + proxycheck + probes)');
+                return (url, init) => pool.fetchThroughPool(url, init);
+            } catch (e) {
+                console.warn('[embyil] free-proxy-pool failed to load:', e.message);
+            }
         }
     }
 
@@ -122,6 +142,17 @@ function createEmbyFetch() {
         } catch (e) {
             console.warn('[embyil] zenrows-fetch failed to load:', e.message);
         }
+    }
+
+    if (IS_RENDER && !envEnabled('ALLOW_RENDER_DIRECT_EMBY_API')) {
+        console.warn(
+            '[embyil] Direct Emby API calls are disabled on Render to avoid repeated blocked requests and bandwidth waste. Configure EMBY_API_FETCH_BASE, EMBY_HTTPS_PROXY, or ZENROWS_API_KEY; set ALLOW_RENDER_DIRECT_EMBY_API=1 only if you intentionally want direct Render egress.'
+        );
+        return async () => {
+            throw new Error(
+                'Render bandwidth guard: no safe Emby API egress configured. Set EMBY_API_FETCH_BASE relay, EMBY_HTTPS_PROXY, or ZENROWS_API_KEY.'
+            );
+        };
     }
 
     console.warn(
@@ -270,6 +301,13 @@ function responseContainsLogin(searchData, login) {
 }
 
 async function run(statusCallback = () => {}) {
+    if (!hasConfiguredRenderEgress()) {
+        const msg =
+            'Render bandwidth guard: no safe Emby API egress configured. Set EMBY_API_FETCH_BASE relay, EMBY_HTTPS_PROXY, or ZENROWS_API_KEY.';
+        statusCallback(`שגיאה: ${msg}`);
+        throw new Error(msg);
+    }
+
     const tempMail = new TempMailAPI();
 
     try {

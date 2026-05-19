@@ -62,6 +62,7 @@ const {
 // --- Configuration ---
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const port = process.env.PORT || 3000;
+const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
 // Render sets RENDER_EXTERNAL_URL; use as fallback so keep-alive + /r/ links work without extra env.
 const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
 /** When unset: on if PUBLIC_URL is set (Render/Zeabur need inbound hits before ~15m idle). Explicit false disables. */
@@ -72,7 +73,7 @@ function envBool(name, defaultTrue) {
     if (/^1|true|yes|on$/i.test(String(v).trim())) return true;
     return defaultTrue;
 }
-const KEEP_ALIVE_SELF_PING = envBool('KEEP_ALIVE_SELF_PING', !!PUBLIC_URL);
+const KEEP_ALIVE_SELF_PING = envBool('KEEP_ALIVE_SELF_PING', !!PUBLIC_URL && !IS_RENDER);
 const KEEP_ALIVE_INTERVAL_MS = Math.max(
     60_000,
     parseInt(process.env.KEEP_ALIVE_INTERVAL_MS || '300000', 10) || 300_000

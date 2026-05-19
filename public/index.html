@@ -1568,9 +1568,10 @@
         connectWebSocket();
         fetchOverviewStats();
         setInterval(() => {
+            if (document.hidden) return;
             fetchOverviewStats();
             if (dashboardMainTab === 'logs') loadActivityLogs();
-        }, 10000);
+        }, 60000);
     </script>
 </body>
 
